@@ -1,55 +1,34 @@
-# 1. Base image with Node.js
-FROM node:18-bullseye-slim
+# 1. Use a lightweight Alpine image with Node.js
+FROM node:18-alpine
 
-# 2. Install system libraries required by Puppeteer/Chromium
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-     ca-certificates \
-     fonts-liberation \
-     gconf-service \
-     libasound2 \
-     libatk1.0-0 \
-     libc6 \
-     libcairo2 \
-     libcups2 \
-     libdbus-1-3 \
-     libexpat1 \
-     libfontconfig1 \
-     libgcc1 \
-     libgconf-2-4 \
-     libgdk-pixbuf2.0-0 \
-     libglib2.0-0 \
-     libgtk-3-0 \
-     libnspr4 \
-     libnss3 \
-     libpango-1.0-0 \
-     libpangocairo-1.0-0 \
-     libstdc++6 \
-     libx11-6 \
-     libx11-xcb1 \
-     libxcb1 \
-     libxcomposite1 \
-     libxcursor1 \
-     libxdamage1 \
-     libxext6 \
-     libxfixes3 \
-     libxi6 \
-     libxrandr2 \
-     libxrender1 \
-     libxss1 \
-     libxtst6 \
-     lsb-release \
-     wget \
-  && rm -rf /var/lib/apt/lists/*
+# 2. Install Chromium and required system libraries for Puppeteer
+RUN apk add --no-cache \
+      chromium \
+      nss \
+      freetype \
+      harfbuzz \
+      ca-certificates \
+      ttf-freefont
 
-# 3. Set working directory
+# 3. Tell Puppeteer to use the system Chromium and skip its own download
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
+# 4. Create a non-root user for running Chromium in its sandbox
+RUN addgroup -S pptruser \
+ && adduser  -S -G pptruser pptruser \
+ && mkdir -p /opt/csp-checker \
+ && chown -R pptruser:pptruser /opt/csp-checker
+
+# 5. Switch to that user
+USER pptruser
+
+# 6. Set working directory
 WORKDIR /opt/csp-checker
 
-# 4. Copy scripts and package manifest, then install dependencies
-COPY health-csp.py health-csp.js package.json ./
-RUN npm install --production
+# 7. Copy application code and install production dependencies
+COPY --chown=pptruser:pptruser package.json health-csp.js ./
+RUN npm install --production && npm cache clean --force
 
-# 5. Default entrypoint: run the Python crawler against the mounted NGINX config
-ENTRYPOINT ["python3", "health-csp.py", \
-            "--script", "health-csp.js", \
-            "--nginx-config-dir", "/etc/nginx/conf.d/http/servers/"]
+# 8. Launch the crawler; health-csp.js internally passes the necessary --no-sandbox flags
+ENTRYPOINT ["node", "health-csp.js"]
