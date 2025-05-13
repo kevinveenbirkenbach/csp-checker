@@ -61,7 +61,7 @@ def main():
     s = sub.add_parser("start", help="Run the CSP checker against domains")
     s.add_argument(
         "--tag", default="csp-checker:latest",
-        help="Image tag to run"
+        help="Image tag to run" 
     )
     s.add_argument(
         "domains", nargs="*",
