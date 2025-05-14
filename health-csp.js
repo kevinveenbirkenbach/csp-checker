@@ -24,24 +24,30 @@ if (domains.length === 0) {
     const page = await browser.newPage();
     const blockedResources = [];
 
-    // 1) Capture network failures (e.g., DNS errors, blocked by extension)
-    page.on('requestfailed', request => {
-      const failure = request.failure();
-      const reason = failure ? failure.errorText : '';
-      if (reason.toLowerCase().includes('blocked')) {
-        blockedResources.push({ type: 'network', url: request.url(), reason });
-      }
+    // Create a CDP session to listen for CSP violations
+    const client = await page.target().createCDPSession();
+    await client.send('Security.enable');
+
+    client.on('Security.cspViolationReported', event => {
+      blockedResources.push({
+        type: 'csp',
+        documentURL: event.documentURL,
+        blockedURL: event.blockedURL,
+        violatedDirective: event.violatedDirective,
+        effectiveDirective: event.effectiveDirective
+      });
     });
 
-    // 2) Capture CSP console errors
-    page.on('console', msg => {
-      const text = msg.text();
-      if (
-        msg.type() === 'error' &&
-        text.includes('Refused to load') &&
-        text.includes('Content Security Policy')
-      ) {
-        blockedResources.push({ type: 'csp', message: text });
+    // Capture network request failures (e.g., DNS errors, blocked)
+    page.on('requestfailed', request => {
+      const failure = request.failure();
+      const reason = failure ? failure.errorText : 'unknown';
+      if (reason.toLowerCase().includes('blocked')) {
+        blockedResources.push({
+          type: 'network',
+          url: request.url(),
+          reason
+        });
       }
     });
 
@@ -52,7 +58,7 @@ if (domains.length === 0) {
         timeout: 20000
       });
     } catch (err) {
-      console.error(`${domain}: ERROR visiting site - ${err.message}`);
+      console.error(`${domain}: ERROR visiting site – ${err.message}`);
       errorCount++;
       await page.close();
       continue;
@@ -73,12 +79,15 @@ if (domains.length === 0) {
         if (resource.type === 'network') {
           console.log(`  [NETWORK] ${resource.url} (${resource.reason})`);
         } else if (resource.type === 'csp') {
-          console.log(`  [CSP] ${resource.message}`);
+          console.log(`  [CSP] Document: ${resource.documentURL}`);
+          console.log(`        Blocked:  ${resource.blockedURL}`);
+          console.log(`        Directive: ${resource.violatedDirective}`);
+          console.log(`        Effective: ${resource.effectiveDirective}`);
         }
       });
       errorCount++;
     } else {
-      console.log(`${domain}: ✅ No CSP blocks detected.`);
+      console.log(`${domain}: ✅ No CSP or network blocks detected.`);
     }
 
     await page.close();
