@@ -1,10 +1,42 @@
 const puppeteer = require('puppeteer');
 
-// Get domains from command-line arguments
-const domains = process.argv.slice(2);
+// Process CLI args: detect --short flag
+const rawArgs = process.argv.slice(2);
+const shortModeIndex = rawArgs.indexOf('--short');
+const shortMode = shortModeIndex > -1;
+if (shortMode) {
+  rawArgs.splice(shortModeIndex, 1);
+}
+const domains = rawArgs;
+
 if (domains.length === 0) {
   console.error('No domains specified. Please pass domains as CLI arguments.');
   process.exit(1);
+}
+
+// Helper to filter resources in short mode: one example per type/policy
+function filterShort(resources) {
+  const seen = new Set();
+  return resources.filter(res => {
+    let key;
+    switch (res.type) {
+      case 'network':
+        key = 'network';
+        break;
+      case 'csp-cdp':
+      case 'csp-dom':
+        // Group by effectiveDirective
+        key = `${res.type}|${res.effectiveDirective}`;
+        break;
+      default:
+        key = res.type;
+    }
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 (async () => {
@@ -38,9 +70,7 @@ if (domains.length === 0) {
     });
 
     // 2) DOM: Listen for CSP violations in-page
-    //    We inject this before any script runs
     await page.evaluateOnNewDocument(() => {
-      // expose a global to collect violations
       window.__cspViolations = [];
       document.addEventListener('securitypolicyviolation', e => {
         window.__cspViolations.push({
@@ -54,7 +84,7 @@ if (domains.length === 0) {
       });
     });
 
-    // 3) Network failures (DNS, extension-blocked, etc.)
+    // 3) Network failures
     page.on('requestfailed', request => {
       const failure = request.failure();
       const reason = failure ? failure.errorText : 'unknown';
@@ -97,7 +127,8 @@ if (domains.length === 0) {
     // Report results
     if (blockedResources.length > 0) {
       console.warn(`${domain}: Blocked resources detected:`);
-      blockedResources.forEach(res => {
+      const toPrint = shortMode ? filterShort(blockedResources) : blockedResources;
+      toPrint.forEach(res => {
         switch (res.type) {
           case 'network':
             console.log(`  [NETWORK] ${res.url} (${res.reason})`);
