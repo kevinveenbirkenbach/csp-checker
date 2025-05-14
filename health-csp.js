@@ -1,16 +1,16 @@
 const puppeteer = require('puppeteer');
 
-// Domains from CLI
+// Get domains from command-line arguments
 const domains = process.argv.slice(2);
-if (!domains.length) {
-  console.error('No domains specified. Pass domains as CLI arguments.');
+if (domains.length === 0) {
+  console.error('No domains specified. Please pass domains as CLI arguments.');
   process.exit(1);
 }
 
 (async () => {
-  let errorCounter = 0;
+  let errorCount = 0;
 
-  // Launch Chromium with no-sandbox flags
+  // Launch Chromium in headless mode with no-sandbox flags
   const browser = await puppeteer.launch({
     headless: 'new',
     args: [
@@ -24,48 +24,59 @@ if (!domains.length) {
     const page = await browser.newPage();
     const blockedResources = [];
 
-    // 1) Network failures (e.g.  DNS, blocked by extension, etc.)
-    page.on('requestfailed', req => {
-      const reason = req.failure()?.errorText || '';
+    // 1) Capture network failures (e.g., DNS errors, blocked by extension)
+    page.on('requestfailed', request => {
+      const failure = request.failure();
+      const reason = failure ? failure.errorText : '';
       if (reason.toLowerCase().includes('blocked')) {
-        blockedResources.push({ type: 'network', url: req.url(), reason });
+        blockedResources.push({ type: 'network', url: request.url(), reason });
       }
     });
 
-    // 2) CSP console-logs
+    // 2) Capture CSP console errors
     page.on('console', msg => {
       const text = msg.text();
       if (
         msg.type() === 'error' &&
         text.includes('Refused to load') &&
-        text.includes('violates the following Content Security Policy')
+        text.includes('Content Security Policy')
       ) {
         blockedResources.push({ type: 'csp', message: text });
       }
     });
 
+    let response;
     try {
-      await page.goto(`https://${domain}`, {
+      response = await page.goto(`https://${domain}`, {
         waitUntil: 'networkidle2',
         timeout: 20000
       });
-    } catch (e) {
-      console.error(`${domain}: ERROR visiting site - ${e.message}`);
-      errorCounter++;
+    } catch (err) {
+      console.error(`${domain}: ERROR visiting site - ${err.message}`);
+      errorCount++;
       await page.close();
       continue;
     }
 
+    // Ignore domains that issue HTTP redirects
+    const redirectChain = response.request().redirectChain();
+    if (redirectChain.length > 0) {
+      console.log(`${domain}: Ignored because of redirect (HTTP ${response.status()})`);
+      await page.close();
+      continue;
+    }
+
+    // Report any blocked resources or confirm none found
     if (blockedResources.length > 0) {
       console.warn(`${domain}: Blocked resources detected:`);
-      blockedResources.forEach(r => {
-        if (r.type === 'network') {
-          console.log(`  [NET] ${r.url} (${r.reason})`);
-        } else if (r.type === 'csp') {
-          console.log(`  [CSP] ${r.message}`);
+      blockedResources.forEach(resource => {
+        if (resource.type === 'network') {
+          console.log(`  [NETWORK] ${resource.url} (${resource.reason})`);
+        } else if (resource.type === 'csp') {
+          console.log(`  [CSP] ${resource.message}`);
         }
       });
-      errorCounter++;
+      errorCount++;
     } else {
       console.log(`${domain}: ✅ No CSP blocks detected.`);
     }
@@ -74,5 +85,5 @@ if (!domains.length) {
   }
 
   await browser.close();
-  process.exit(errorCounter);
+  process.exit(errorCount);
 })();
