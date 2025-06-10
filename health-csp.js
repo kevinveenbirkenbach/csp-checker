@@ -119,14 +119,14 @@ function filterShort(resources) {
     // Ignore HTTP redirect chains
     const redirectChain = response.request().redirectChain();
     if (redirectChain.length > 0) {
-      console.log(`${domain}: Ignored because of redirect (HTTP ${response.status()})`);
+      console.log(`${domain}: 🚫 Ignored because of redirect (HTTP ${response.status()})`);
       await page.close();
       continue;
     }
 
     // Report results
     if (blockedResources.length > 0) {
-      console.warn(`${domain}: Blocked resources detected:`);
+      console.warn(`${domain}: ❌ Blocked resources detected:`);
       const toPrint = shortMode ? filterShort(blockedResources) : blockedResources;
       toPrint.forEach(res => {
         switch (res.type) {
