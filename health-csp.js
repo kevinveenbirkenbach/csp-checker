@@ -104,7 +104,7 @@ function filterShort(resources) {
         timeout: 20000
       });
     } catch (err) {
-      console.error(`${domain}: ERROR visiting site – ${err.message}`);
+      console.error(`${domain}: ❌ ERROR visiting site – ${err.message}`);
       errorCount++;
       await page.close();
       continue;
