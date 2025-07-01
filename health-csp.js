@@ -54,6 +54,7 @@ function filterShort(resources) {
 
   for (const domain of domains) {
     const page = await browser.newPage();
+    await page.setUserAgent('CSP-CheckerBot (https://github.com/kevinveenbirkenbach/csp-checker)');
     const blockedResources = [];
 
     // 1) CDP: Listen for CSP via DevTools Protocol
