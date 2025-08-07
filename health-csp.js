@@ -98,14 +98,33 @@ function filterShort(resources) {
       }
     });
 
-    let response;
+    let response, scheme;
+
+    async function gotoWithFallback(page, domain, schemes, opts) {
+      for (const s of schemes) {
+        try {
+          const url = `${s}://${domain}`;
+          const res = await page.goto(url, opts);
+          const status = res && res.status();
+          if (!res || status >= 400) {
+            throw new Error(`Status ${status}`);
+          }
+          return { response: res, scheme: s };
+        } catch (err) {
+          console.warn(`→ ${s.toUpperCase()} failed (${err.message})`);
+        }
+      }
+      throw new Error(`Unable to reach ${domain} via ${schemes.join(', ')}`);
+    }
+
+    const opts = { waitUntil: 'domcontentloaded', timeout: 20000 };
+
     try {
-      response = await page.goto(`https://${domain}`, {
-        waitUntil: 'networkidle2',
-        timeout: 20000
-      });
+      // Destructure into the outer vars
+      ({ response, scheme } = await gotoWithFallback(page, domain, ['https','http'], opts));
+      console.log(`${domain}: ✅ reachable via ${scheme.toUpperCase()} (${response.status()})`);
     } catch (err) {
-      console.error(`${domain}: ❌ ERROR visiting site – ${err.message}`);
+      console.error(`${domain}: ❌ ${err.message}`);
       errorCount++;
       await page.close();
       continue;
