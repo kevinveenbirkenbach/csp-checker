@@ -12,28 +12,42 @@
 
 ## ⚙️ Installation
 
-You can also install this software via [Kevin’s Package Manager](https://github.com/kevinveenbirkenbach/package-manager):
+Install via [Kevin’s Package Manager](https://github.com/kevinveenbirkenbach/package-manager):
 
 ```bash
 pkgmgr install checkcsp
 ```
 
+This will automatically build and install the Docker image as `csp-checker:latest`.
+
 ---
 
 ## 📋 Usage
 
-After installation, invoke the `checkcsp` command:
+After installation, simply use the `checkcsp` command:
 
 ```bash
 # Show help & available commands
 checkcsp --help
 
-# Build or rebuild the Docker image
-checkcsp build [--tag <your-tag>]
-
 # Run the CSP checker against one or more domains
-checkcsp start example.com api.example.com
+checkcsp example.com api.example.com
+
+# Run in short mode (one example per type/policy)
+checkcsp --short example.com
 ```
+
+---
+
+## 🧪 Testing
+
+A small Python unit test suite is included:
+
+```bash
+make test
+```
+
+This runs `python3 -m unittest -v test.py` and verifies the container startup logic.
 
 ---
 

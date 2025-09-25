@@ -8,29 +8,9 @@ import sys
 SCRIPT_PATH = os.path.realpath(__file__)
 BASE_DIR = os.path.dirname(SCRIPT_PATH)
 
-def build_image(tag):
-    """Build the Docker image with the given tag, in the script’s own folder."""
-    print(f"Building image {tag} in {BASE_DIR}…")
-    subprocess.check_call(
-        ["docker", "build", "-t", tag, "."],
-        cwd=BASE_DIR
-    )
-
-def ensure_image(tag):
-    """Ensure the image exists; if not, build it."""
-    try:
-        subprocess.check_call(
-            ["docker", "image", "inspect", tag],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-    except subprocess.CalledProcessError:
-        build_image(tag)
-
 def start_container(tag, domains, short_mode):
-    """Run the container (always from the script’s folder), building it first if needed.
+    """Run the container (always from the script’s folder).
     Supports --short to limit output inside the container."""
-    ensure_image(tag)
 
     cmd = ["docker", "run", "--rm"]
     # image and its arguments
@@ -47,18 +27,10 @@ def start_container(tag, domains, short_mode):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Build or run the csp-checker container from its own repo dir"
+        description="Run the csp-checker container from its own repo dir"
     )
     sub = parser.add_subparsers(dest="command", required=True)
-
-    # Build command
-    b = sub.add_parser("build", help="Build the Docker image")
-    b.add_argument(
-        "--tag", default="csp-checker:latest",
-        help="Image tag to build"
-    )
-
-    # Start command
+    # Start command (build is handled by Makefile)
     s = sub.add_parser("start", help="Run the CSP checker against domains")
     s.add_argument(
         "--tag", default="csp-checker:latest",
@@ -74,9 +46,7 @@ def main():
     )
 
     args = parser.parse_args()
-    if args.command == "build":
-        build_image(args.tag)
-    else:
+    if args.command == "start":
         start_container(args.tag, args.domains, args.short)
 
 if __name__ == "__main__":
