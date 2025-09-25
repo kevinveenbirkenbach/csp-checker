@@ -106,7 +106,11 @@ function filterShort(resources) {
           const url = `${s}://${domain}`;
           const res = await page.goto(url, opts);
           const status = res && res.status();
-          if (!res || status >= 400) {
+          // allow 401 and 403 (reachable but unauthorized/forbidden)
+          if (!res) {
+            throw new Error("No response");
+          }
+          if (status >= 400 && status !== 401 && status !== 403) {
             throw new Error(`Status ${status}`);
           }
           return { response: res, scheme: s };
