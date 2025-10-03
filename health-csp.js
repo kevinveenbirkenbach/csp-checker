@@ -1,17 +1,69 @@
 const puppeteer = require('puppeteer');
 
-// Process CLI args: detect --short flag
-const rawArgs = process.argv.slice(2);
-const shortModeIndex = rawArgs.indexOf('--short');
-const shortMode = shortModeIndex > -1;
-if (shortMode) {
-  rawArgs.splice(shortModeIndex, 1);
+/**
+ * Parse CLI args:
+ *  - --short
+ *  - --ignore-network-blocks-from <domain ...>
+ *  - remaining positional args are target domains
+ */
+function parseArgs(argv) {
+  const args = argv.slice(2); // skip node + script
+  const result = {
+    shortMode: false,
+    ignoreDomains: [],
+    domains: []
+  };
+
+  // Simple stateful parse
+  let i = 0;
+  while (i < args.length) {
+    const token = args[i];
+
+    if (token === '--short') {
+      result.shortMode = true;
+      i += 1;
+      continue;
+    }
+
+    if (token === '--ignore-network-blocks-from') {
+      i += 1; // move to first domain
+      while (i < args.length && !String(args[i]).startsWith('--')) {
+        result.ignoreDomains.push(args[i]);
+        i += 1;
+      }
+      continue;
+    }
+
+    // Positional target domain
+    result.domains.push(token);
+    i += 1;
+  }
+
+  return result;
 }
-const domains = rawArgs;
+
+const { shortMode, ignoreDomains, domains } = parseArgs(process.argv);
 
 if (domains.length === 0) {
   console.error('No domains specified. Please pass domains as CLI arguments.');
   process.exit(1);
+}
+
+// Helper: determine whether a URL should be ignored based on its hostname
+function shouldIgnoreUrl(urlStr, ignoreList) {
+  try {
+    const u = new URL(urlStr);
+    const host = u.hostname.toLowerCase();
+    return ignoreList.some(dom => {
+      const d = String(dom).toLowerCase();
+      // exact host or subdomain match
+      return host === d || host.endsWith(`.${d}`);
+    });
+  } catch {
+    // If URL can't be parsed, fallback to a conservative substring test
+    const lower = String(urlStr).toLowerCase();
+    return ignoreList.some(dom => lower.includes(String(dom).toLowerCase()));
+  }
 }
 
 // Helper to filter resources in short mode: one example per type/policy
@@ -25,15 +77,12 @@ function filterShort(resources) {
         break;
       case 'csp-cdp':
       case 'csp-dom':
-        // Group by effectiveDirective
         key = `${res.type}|${res.effectiveDirective}`;
         break;
       default:
         key = res.type;
     }
-    if (seen.has(key)) {
-      return false;
-    }
+    if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
@@ -63,10 +112,10 @@ function filterShort(resources) {
     client.on('Security.cspViolationReported', event => {
       blockedResources.push({
         type: 'csp-cdp',
-        documentURL:      event.documentURL,
-        blockedURL:       event.blockedURL || '(inline)',
+        documentURL:       event.documentURL,
+        blockedURL:        event.blockedURL || '(inline)',
         violatedDirective: event.violatedDirective,
-        effectiveDirective: event.effectiveDirective,
+        effectiveDirective:event.effectiveDirective,
       });
     });
 
@@ -75,24 +124,31 @@ function filterShort(resources) {
       window.__cspViolations = [];
       document.addEventListener('securitypolicyviolation', e => {
         window.__cspViolations.push({
-          blockedURI:        e.blockedURI || '(inline)',
-          violatedDirective: e.violatedDirective,
-          effectiveDirective:e.effectiveDirective,
-          sourceFile:        e.sourceFile,
-          lineNumber:        e.lineNumber,
-          columnNumber:      e.columnNumber
+          blockedURI:         e.blockedURI || '(inline)',
+          violatedDirective:  e.violatedDirective,
+          effectiveDirective: e.effectiveDirective,
+          sourceFile:         e.sourceFile,
+          lineNumber:         e.lineNumber,
+          columnNumber:       e.columnNumber
         });
       });
     });
 
-    // 3) Network failures
+    // 3) Network failures (ORB and other block reasons)
     page.on('requestfailed', request => {
       const failure = request.failure();
       const reason = failure ? failure.errorText : 'unknown';
-      if (reason.toLowerCase().includes('blocked')) {
+      const url = request.url();
+
+      // Only consider "blocked" type failures (e.g., ORB)
+      if (reason && reason.toLowerCase().includes('blocked')) {
+        // Ignore if URL host matches any of the ignore list entries
+        if (ignoreDomains.length > 0 && shouldIgnoreUrl(url, ignoreDomains)) {
+          return; // suppressed
+        }
         blockedResources.push({
           type: 'network',
-          url:  request.url(),
+          url,
           reason
         });
       }
@@ -105,11 +161,9 @@ function filterShort(resources) {
         try {
           const url = `${s}://${domain}`;
           const res = await page.goto(url, opts);
-          const status = res && res.status();
+          if (!res) throw new Error("No response");
+          const status = res.status();
           // allow 401 and 403 (reachable but unauthorized/forbidden)
-          if (!res) {
-            throw new Error("No response");
-          }
           if (status >= 400 && status !== 401 && status !== 403) {
             throw new Error(`Status ${status}`);
           }
@@ -124,7 +178,6 @@ function filterShort(resources) {
     const opts = { waitUntil: 'domcontentloaded', timeout: 20000 };
 
     try {
-      // Destructure into the outer vars
       ({ response, scheme } = await gotoWithFallback(page, domain, ['https','http'], opts));
       console.log(`${domain}: ✅ reachable via ${scheme.toUpperCase()} (${response.status()})`);
     } catch (err) {
