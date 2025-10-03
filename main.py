@@ -22,6 +22,7 @@ def start_container(tag, domains, short_mode, ignore_network_blocks_from):
     if ignore_network_blocks_from:
         cmd.append("--ignore-network-blocks-from")
         cmd.extend(ignore_network_blocks_from)
+        cmd.append("--")
 
     if domains:
         cmd.extend(domains)
