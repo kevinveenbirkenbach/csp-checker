@@ -19,6 +19,16 @@ function parseArgs(argv) {
   while (i < args.length) {
     const token = args[i];
 
+    // Explicitly handle arg separator: everything after -- are positional domains
+    if (token === '--') {
+      i += 1;
+      while (i < args.length) {
+        result.domains.push(args[i]);
+        i += 1;
+      }
+      break;
+    }
+
     if (token === '--short') {
       result.shortMode = true;
       i += 1;
