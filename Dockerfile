@@ -1,5 +1,5 @@
 # 1. Use a lightweight Alpine image with Node.js
-FROM node:18-alpine
+FROM node:lts-alpine
 
 # 2. Install Chromium and required system libraries for Puppeteer
 RUN apk add --no-cache \
@@ -28,7 +28,7 @@ WORKDIR /opt/csp-checker
 
 # 7. Copy application code and install production dependencies
 COPY --chown=pptruser:pptruser package.json health-csp.js ./
-RUN npm install --production && npm cache clean --force
+RUN npm install --omit=dev && npm cache clean --force
 
 # 8. Launch the crawler; health-csp.js internally passes the necessary --no-sandbox flags
 ENTRYPOINT ["node", "health-csp.js"]
