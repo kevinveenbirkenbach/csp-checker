@@ -206,7 +206,7 @@ function filterShort(resources) {
     // Ignore HTTP redirect chains
     const redirectChain = response.request().redirectChain();
     if (redirectChain.length > 0) {
-      console.log(`${domain}: 🚫 Ignored because of redirect (HTTP ${response.status()})`);
+      console.log(`${domain}: 👻 Ignored because of redirect (HTTP ${response.status()})`);
       await page.close();
       continue;
     }
