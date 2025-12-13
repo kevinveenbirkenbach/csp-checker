@@ -3,10 +3,6 @@ IMAGE ?= csp-checker:latest
 
 .PHONY: install build run clean test
 
-## Always build image when installing (cache-bust + pull base)
-install: build
-	@echo "✅ Installed Docker image: $(IMAGE)"
-
 ## Build with cache-bust and pull latest base
 build:
 	docker build --pull \
