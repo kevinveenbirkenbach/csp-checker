@@ -1,0 +1,16 @@
+services:
+  web-ok:
+    image: nginx:alpine
+    container_name: csp-e2e-web-ok
+    ports: []
+    volumes:
+      - ./web-ok/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web-ok/index.html:/usr/share/nginx/html/index.html:ro
+
+  web-bad:
+    image: nginx:alpine
+    container_name: csp-e2e-web-bad
+    ports: []
+    volumes:
+      - ./web-bad/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web-bad/index.html:/usr/share/nginx/html/index.html:ro

@@ -27,7 +27,7 @@ USER pptruser
 WORKDIR /opt/csp-checker
 
 # 7. Copy application code and install production dependencies
-COPY --chown=pptruser:pptruser package.json health-csp.js ./
+COPY --chown=pptruser:pptruser ./files ./
 RUN npm install --omit=dev && npm cache clean --force
 
 # 8. Launch the crawler; health-csp.js internally passes the necessary --no-sandbox flags

@@ -1,7 +1,10 @@
 # Makefile
 IMAGE ?= csp-checker:latest
 
-.PHONY: install build run clean test
+.PHONY: install build run clean test test-e2e
+
+test-e2e:
+	./tests/e2e/run.sh
 
 ## Build with cache-bust and pull latest base
 build:
@@ -16,7 +19,3 @@ run:
 ## Remove the built image (best-effort)
 clean:
 	- docker rmi $(IMAGE) 2>/dev/null || true
-
-## Run Python unit tests
-test:
-	python3 -m unittest -v test.py
