@@ -14,3 +14,11 @@ services:
     volumes:
       - ./web-bad/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./web-bad/index.html:/usr/share/nginx/html/index.html:ro
+
+  web-http-only:
+    image: nginx:alpine
+    container_name: csp-e2e-web-http-only
+    ports: []
+    volumes:
+      - ./web-http-only/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web-http-only/index.html:/usr/share/nginx/html/index.html:ro

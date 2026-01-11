@@ -23,7 +23,7 @@ NETWORK="${PROJECT}_default"
 
 # small wait loop for nginx readiness
 log "Wait for nginx services"
-for svc in web-ok web-bad; do
+for svc in web-ok web-bad web-http-only; do
   for i in {1..30}; do
     if docker run --rm --network "${NETWORK}" curlimages/curl:8.10.1 -fsS "http://${svc}/" >/dev/null 2>&1; then
       echo "OK: ${svc}"
@@ -85,5 +85,23 @@ if [[ "${DOM_COUNT}" -gt 1 ]]; then
   echo "Expected <= 1 '[CSP DOM]' entry in --short mode, got ${DOM_COUNT}"
   exit 1
 fi
+
+log "Test 4: http-only service must not hang after a failed HTTPS probe (regression test)"
+# If your fix is in place, checker should quickly choose HTTP (port 80 open, 443 refused) and exit 0.
+# We also ensure it finishes within a short time to catch the timeout hang.
+set +e
+OUT_HTTP_ONLY="$(timeout 15s docker run --rm --network "${NETWORK}" "${IMAGE}" web-http-only 2>&1)"
+RC_HTTP_ONLY=$?
+set -e
+echo "${OUT_HTTP_ONLY}"
+
+if [[ "${RC_HTTP_ONLY}" -ne 0 ]]; then
+  echo "Expected exit code 0 for web-http-only, got ${RC_HTTP_ONLY}"
+  exit 1
+fi
+
+# Must say reachable via HTTP (and should not need HTTPS)
+echo "${OUT_HTTP_ONLY}" | grep -q "web-http-only: ✅ reachable via HTTP" \
+  || { echo "Expected 'reachable via HTTP' for web-http-only"; exit 1; }
 
 log "All E2E tests passed ✅"
