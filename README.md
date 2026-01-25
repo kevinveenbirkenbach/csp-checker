@@ -11,13 +11,36 @@
 
 ## 📖 Description
 
-**csp-checker** runs fully inside a Docker container and crawls one or more domains to detect:
+**csp-checker** runs fully inside a Docker container and checks one or more **explicit URLs** for:
 
-- ❌ CSP violations (via **DevTools Protocol** and **DOM events**)
-- ❌ blocked network requests (e.g. ORB / blocked by browser)
-- ✅ reachability via HTTPS (with HTTP fallback)
+- ❌ **CSP violations**
+  - via Chrome DevTools Protocol (CDP)
+  - via DOM `securitypolicyviolation` events
+- ❌ **Blocked network requests**
+  - e.g. ORB / blocked-by-client
+- ✅ **Reachability of the given URL**
 
-The container exits with a **non-zero exit code** if violations are detected, making it ideal for **CI/CD pipelines**, monitoring jobs, and automated checks.
+The container exits with a **non-zero exit code** if any URL reports violations or is unreachable, making it ideal for:
+
+- CI/CD pipelines
+- automated health checks
+- security monitoring jobs
+
+---
+
+## ⚠️ Breaking Change (v2.0.0)
+
+Starting with **v2.0.0**, the checker is **URL-only**:
+
+- ✅ **Only full URLs are accepted**
+  - `http://example.com/`
+  - `https://example.com/login`
+- ❌ **No domain-only input**
+  - `example.com` ❌
+- ❌ **No HTTPS/HTTP probing**
+- ❌ **No automatic fallback**
+
+The checker navigates **exactly** to the provided URL.
 
 ---
 
@@ -25,8 +48,10 @@ The container exits with a **non-zero exit code** if violations are detected, ma
 
 Images are published to **GitHub Container Registry (GHCR)**:
 
-```text
+```
+
 ghcr.io/kevinveenbirkenbach/csp-checker
+
 ```
 
 Example:
@@ -40,54 +65,64 @@ docker pull ghcr.io/kevinveenbirkenbach/csp-checker:stable
 ## ▶️ Usage
 
 The container entrypoint is the checker itself.
-All arguments passed to `docker run` are forwarded to the checker.
+All arguments passed to `docker run` are forwarded directly to the checker.
 
-### Basic usage
+### Basic usage (single URL)
 
 ```bash
-docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker example.com
+docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
+  http://example.com/
 ```
 
-Check multiple domains:
+### Multiple URLs
 
 ```bash
-docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker example.com api.example.com
+docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
+  https://example.com/ \
+  https://example.com/login
 ```
 
 ---
 
-### Short mode (one example per policy/type)
+### Short mode
+
+Print only one representative violation per policy/type:
 
 ```bash
 docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
-  --short example.com
+  --short \
+  -- https://example.com/
 ```
 
 ---
 
-### Ignore network blocks from specific domains
+### Ignore blocked network requests from specific hosts
 
-Suppress known third-party hosts (e.g. CDNs):
+Useful for known CDNs or analytics endpoints:
 
 ```bash
 docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
-  --ignore-network-blocks-from pxscdn.com cdn.example.org \
-  -- example.com
+  --ignore-network-blocks-from cdn.example.org analytics.example.com \
+  -- https://example.com/
 ```
 
-> ℹ️ The `--` separator ensures that everything after it is treated as a domain.
+> ℹ️ The `--` separator ensures everything after it is treated as a URL.
 
 ---
 
 ## 🧾 Exit Codes
 
-* `0` → No CSP or network violations detected
-* `>0` → One or more domains reported violations or were unreachable
+| Code | Meaning                                             |
+| ---: | --------------------------------------------------- |
+|  `0` | No CSP or network violations detected               |
+| `>0` | One or more URLs had violations or were unreachable |
+|  `2` | Fatal/internal error                                |
 
-This makes the image suitable for use in CI jobs:
+This makes the image suitable for CI pipelines:
 
 ```bash
-docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker example.com
+docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
+  https://example.com/
 ```
 
 ---
@@ -103,22 +138,22 @@ make build
 ### Run locally built image
 
 ```bash
-make run ARGS="example.com"
+make run ARGS="http://example.com/"
 ```
 
 With flags:
 
 ```bash
-make run ARGS="--short -- example.com"
+make run ARGS="--short -- http://example.com/"
 ```
 
 ---
 
 ## 🔒 Security Notes
 
-* Chromium runs **headless** and **without sandbox** (required inside containers)
+* Chromium runs **headless** and **without sandbox** (required in containers)
 * The container runs as a **non-root user**
-* No data is persisted; the container is fully ephemeral
+* No state or data is persisted
 
 ---
 
