@@ -40,7 +40,7 @@ done
 
 log "Test 1: web-ok should exit 0 and report no violations"
 set +e
-OUT_OK="$(docker run --rm --network "${NETWORK}" "${IMAGE}" web-ok 2>&1)"
+OUT_OK="$(docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-ok/" 2>&1)"
 RC_OK=$?
 set -e
 echo "${OUT_OK}"
@@ -53,7 +53,7 @@ echo "${OUT_OK}" | grep -q "web-ok: ✅ No CSP or network blocks detected\." \
 
 log "Test 2: web-bad should exit >0 and report CSP violations"
 set +e
-OUT_BAD="$(docker run --rm --network "${NETWORK}" "${IMAGE}" web-bad 2>&1)"
+OUT_BAD="$(docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-bad/" 2>&1)"
 RC_BAD=$?
 set -e
 echo "${OUT_BAD}"
@@ -70,7 +70,7 @@ echo "${OUT_BAD}" | grep -Eq "\[CSP (DOM|CDP)\]" \
 
 log "Test 3: --short should reduce duplicate CSP DOM entries (2 inline scripts -> 1 line expected)"
 set +e
-OUT_SHORT="$(docker run --rm --network "${NETWORK}" "${IMAGE}" --short web-bad 2>&1)"
+OUT_SHORT="$(docker run --rm --network "${NETWORK}" "${IMAGE}" --short "http://web-bad/" 2>&1)"
 RC_SHORT=$?
 set -e
 echo "${OUT_SHORT}"
@@ -86,11 +86,10 @@ if [[ "${DOM_COUNT}" -gt 1 ]]; then
   exit 1
 fi
 
-log "Test 4: http-only service must not hang after a failed HTTPS probe (regression test)"
-# If your fix is in place, checker should quickly choose HTTP (port 80 open, 443 refused) and exit 0.
-# We also ensure it finishes within a short time to catch the timeout hang.
+log "Test 4: http-only service must not hang (regression test)"
+# URL-only mode: we always pass the exact URL; ensure it finishes quickly and exits 0.
 set +e
-OUT_HTTP_ONLY="$(timeout 15s docker run --rm --network "${NETWORK}" "${IMAGE}" web-http-only 2>&1)"
+OUT_HTTP_ONLY="$(timeout 15s docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-http-only/" 2>&1)"
 RC_HTTP_ONLY=$?
 set -e
 echo "${OUT_HTTP_ONLY}"
@@ -100,7 +99,7 @@ if [[ "${RC_HTTP_ONLY}" -ne 0 ]]; then
   exit 1
 fi
 
-# Must say reachable via HTTP (and should not need HTTPS)
+# Must say reachable via HTTP
 echo "${OUT_HTTP_ONLY}" | grep -q "web-http-only: ✅ reachable via HTTP" \
   || { echo "Expected 'reachable via HTTP' for web-http-only"; exit 1; }
 
