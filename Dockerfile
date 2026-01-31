@@ -5,6 +5,7 @@ FROM node:lts-alpine
 RUN apk add --no-cache \
       chromium \
       nss \
+      nss-tools \
       freetype \
       harfbuzz \
       ca-certificates \
@@ -19,6 +20,11 @@ RUN addgroup -S pptruser \
  && adduser  -S -G pptruser pptruser \
  && mkdir -p /opt/csp-checker \
  && chown -R pptruser:pptruser /opt/csp-checker
+
+# Ensure HOME is set and NSS DB dir exists (must be done as root)
+ENV HOME=/home/pptruser
+RUN mkdir -p /home/pptruser/.pki/nssdb /home/pptruser/.config/chromium-profile \
+ && chown -R pptruser:pptruser /home/pptruser
 
 # 5. Switch to that user
 USER pptruser

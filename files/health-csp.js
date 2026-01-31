@@ -239,6 +239,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
+      `--user-data-dir=${process.env.HOME || '/tmp'}/.config/chromium-profile`,
     ],
   });
 
