@@ -1,3 +1,8 @@
+## [2.1.0] - 2026-01-31
+
+* Fix Chromium CA trust handling so injected certificates are correctly honored during CSP checks.
+
+
 ## [2.0.0] - 2026-01-25
 
 * ⚠ BREAKING CHANGES
