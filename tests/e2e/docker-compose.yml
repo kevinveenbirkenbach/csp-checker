@@ -22,3 +22,12 @@ services:
     volumes:
       - ./web-http-only/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./web-http-only/index.html:/usr/share/nginx/html/index.html:ro
+
+  web-tls-selfsigned:
+    image: nginx:alpine
+    container_name: csp-e2e-web-tls-selfsigned
+    ports: []
+    volumes:
+      - ./web-tls-selfsigned/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web-tls-selfsigned/index.html:/usr/share/nginx/html/index.html:ro
+      - ./web-tls-selfsigned/certs:/etc/nginx/certs:ro

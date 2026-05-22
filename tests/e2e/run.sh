@@ -16,16 +16,33 @@ trap cleanup EXIT
 log "Build image"
 docker build --pull -t "${IMAGE}" .
 
+log "Ensure self-signed cert for TLS fixture exists"
+TLS_CERTS_DIR="tests/e2e/web-tls-selfsigned/certs"
+mkdir -p "${TLS_CERTS_DIR}"
+if [[ ! -f "${TLS_CERTS_DIR}/server.crt" ]] || [[ ! -f "${TLS_CERTS_DIR}/server.key" ]]; then
+  echo "generating new self-signed cert"
+  openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+    -subj "/CN=web-tls-selfsigned" \
+    -addext "subjectAltName=DNS:web-tls-selfsigned" \
+    -keyout "${TLS_CERTS_DIR}/server.key" \
+    -out    "${TLS_CERTS_DIR}/server.crt" >/dev/null 2>&1
+  chmod 644 "${TLS_CERTS_DIR}/server.key" "${TLS_CERTS_DIR}/server.crt"
+else
+  echo "reusing existing self-signed cert"
+fi
+
 log "Start E2E web fixtures (nginx)"
 docker compose -p "${PROJECT}" -f "${COMPOSE_FILE}" up -d
 
 NETWORK="${PROJECT}_default"
 
-# small wait loop for nginx readiness
+# small wait loop for nginx readiness (curl -k so the same loop covers http + https-selfsigned)
 log "Wait for nginx services"
-for svc in web-ok web-bad web-http-only; do
+for svc_pair in "web-ok:http" "web-bad:http" "web-http-only:http" "web-tls-selfsigned:https"; do
+  svc="${svc_pair%:*}"
+  proto="${svc_pair#*:}"
   for i in {1..30}; do
-    if docker run --rm --network "${NETWORK}" curlimages/curl:8.10.1 -fsS "http://${svc}/" >/dev/null 2>&1; then
+    if docker run --rm --network "${NETWORK}" curlimages/curl:8.10.1 -fkS "${proto}://${svc}/" >/dev/null 2>&1; then
       echo "OK: ${svc}"
       break
     fi
@@ -102,5 +119,20 @@ fi
 # Must say reachable via HTTP
 echo "${OUT_HTTP_ONLY}" | grep -q "web-http-only: ✅ reachable via HTTP" \
   || { echo "Expected 'reachable via HTTP' for web-http-only"; exit 1; }
+
+log "Test 5: self-signed HTTPS must be reachable (acceptInsecureCerts regression)"
+# Guards against Chromium 113+ Chrome Root Store ignoring host NSS DB; needs Puppeteer cert-bypass.
+set +e
+OUT_TLS="$(docker run --rm --network "${NETWORK}" "${IMAGE}" "https://web-tls-selfsigned/" 2>&1)"
+RC_TLS=$?
+set -e
+echo "${OUT_TLS}"
+if [[ "${RC_TLS}" -ne 0 ]]; then
+  echo "Expected exit code 0 for self-signed HTTPS, got ${RC_TLS}"
+  echo "If the message above is 'ERR_CERT_AUTHORITY_INVALID', the Puppeteer launch is missing acceptInsecureCerts."
+  exit 1
+fi
+echo "${OUT_TLS}" | grep -q "web-tls-selfsigned: ✅ reachable via HTTPS" \
+  || { echo "Expected 'reachable via HTTPS' line for web-tls-selfsigned"; exit 1; }
 
 log "All E2E tests passed ✅"

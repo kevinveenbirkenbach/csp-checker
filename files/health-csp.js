@@ -235,10 +235,14 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
 
   const browser = await puppeteer.launch({
     headless: 'new',
+    // Chromium 113+ Chrome Root Store ignores host NSS DB; bypass cert validation (both names = Puppeteer v20/v21 compat).
+    ignoreHTTPSErrors: true,
+    acceptInsecureCerts: true,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
+      '--ignore-certificate-errors',
       `--user-data-dir=${process.env.HOME || '/tmp'}/.config/chromium-profile`,
     ],
   });
