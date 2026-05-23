@@ -38,7 +38,7 @@ NETWORK="${PROJECT}_default"
 
 # small wait loop for nginx readiness (curl -k so the same loop covers http + https-selfsigned)
 log "Wait for nginx services"
-for svc_pair in "web-ok:http" "web-bad:http" "web-http-only:http" "web-tls-selfsigned:https"; do
+for svc_pair in "web-ok:http" "web-bad:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http"; do
   svc="${svc_pair%:*}"
   proto="${svc_pair#*:}"
   for i in {1..30}; do
@@ -134,5 +134,22 @@ if [[ "${RC_TLS}" -ne 0 ]]; then
 fi
 echo "${OUT_TLS}" | grep -q "web-tls-selfsigned: ✅ reachable via HTTPS" \
   || { echo "Expected 'reachable via HTTPS' line for web-tls-selfsigned"; exit 1; }
+
+log "Test 6: post-DOMContentLoaded navigation must not crash with 'Execution context was destroyed'"
+set +e
+OUT_REDIR="$(timeout 30s docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-redirecting/" 2>&1)"
+RC_REDIR=$?
+set -e
+echo "${OUT_REDIR}"
+if echo "${OUT_REDIR}" | grep -q "Execution context was destroyed"; then
+  echo "Regression: 'Execution context was destroyed' was not retried"
+  exit 1
+fi
+if [[ "${RC_REDIR}" -ne 0 ]]; then
+  echo "Expected exit code 0 for web-redirecting after navigation retry, got ${RC_REDIR}"
+  exit 1
+fi
+echo "${OUT_REDIR}" | grep -q "web-redirecting: ✅ reachable via HTTP" \
+  || { echo "Expected 'reachable via HTTP' line for web-redirecting"; exit 1; }
 
 log "All E2E tests passed ✅"

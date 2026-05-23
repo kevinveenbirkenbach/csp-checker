@@ -205,6 +205,25 @@ async function createInstrumentedPage(browser, ignoreDomainsList) {
   return { page, blockedResources, client };
 }
 
+// Retry page.evaluate on "Execution context was destroyed" thrown by mid-navigation races.
+async function safeEvaluate(page, fn, { retries = 3, settleMs = 750 } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await page.evaluate(fn);
+    } catch (err) {
+      const msg = String((err && err.message) || err);
+      const isContextDestroyed = msg.includes('Execution context was destroyed')
+        || msg.includes('Target closed');
+      if (!isContextDestroyed || attempt === retries) throw err;
+      await page
+        .waitForNavigation({ timeout: 5000, waitUntil: 'domcontentloaded' })
+        .catch(() => {});
+      await new Promise(r => setTimeout(r, settleMs));
+    }
+  }
+  return undefined;
+}
+
 /**
  * Navigate to an URL using a fresh instrumented page.
  * Returns:
@@ -269,8 +288,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
       continue;
     }
 
-    // Pull in-page CSP violations
-    const inPageViolations = await page.evaluate(() => window.__cspViolations);
+    const inPageViolations = await safeEvaluate(page, () => window.__cspViolations || []);
     inPageViolations.forEach(v => {
       blockedResources.push(Object.assign({ type: 'csp-dom' }, v));
     });
