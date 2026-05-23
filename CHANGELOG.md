@@ -1,3 +1,8 @@
+## [2.1.2] - 2026-05-23
+
+* Fix Fatal: Execution context was destroyed, most likely because of a navigation when an app fires a client-side navigation after the initial domcontentloaded (e.g. LAM session redirect, meta-refresh, inline location.href assignment). page.evaluate now retries on the destroyed-context error, waiting for the next navigation to commit before reading window.__cspViolations from the new document. evaluateOnNewDocument reinstalls the violation collector on every document, so the retry returns the violations from the final document.
+
+
 ## [2.1.1] - 2026-05-22
 
 * Chromium 113 and newer uses the Chrome Root Store and ignores the host
