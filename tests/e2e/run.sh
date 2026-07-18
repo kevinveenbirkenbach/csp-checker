@@ -152,4 +152,42 @@ fi
 echo "${OUT_REDIR}" | grep -q "web-redirecting: ✅ reachable via HTTP" \
   || { echo "Expected 'reachable via HTTP' line for web-redirecting"; exit 1; }
 
+log "Wait for socks proxy + proxied fixture"
+for i in {1..30}; do
+  if docker run --rm --network "${NETWORK}" curlimages/curl:8.10.1 \
+      -fsS --socks5-hostname socks-proxy:1080 "http://web-proxied/" >/dev/null 2>&1; then
+    echo "OK: web-proxied via socks-proxy"
+    break
+  fi
+  sleep 0.2
+  if [[ "${i}" -eq 30 ]]; then
+    echo "ERROR: web-proxied not reachable via socks-proxy"
+    docker compose -p "${PROJECT}" -f "${COMPOSE_FILE}" logs socks-proxy web-proxied
+    exit 1
+  fi
+done
+
+log "Test 7: --proxy reaches an isolated fixture through SOCKS; direct access must fail"
+set +e
+OUT_NOPROXY="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-proxied/" 2>&1)"
+RC_NOPROXY=$?
+set -e
+echo "${OUT_NOPROXY}"
+if [[ "${RC_NOPROXY}" -eq 0 ]]; then
+  echo "Expected non-zero exit code without --proxy (fixture must be isolated), got 0"
+  exit 1
+fi
+
+set +e
+OUT_PROXY="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" --proxy "socks5://socks-proxy:1080" "http://web-proxied/" 2>&1)"
+RC_PROXY=$?
+set -e
+echo "${OUT_PROXY}"
+if [[ "${RC_PROXY}" -ne 0 ]]; then
+  echo "Expected exit code 0 with --proxy socks5://socks-proxy:1080, got ${RC_PROXY}"
+  exit 1
+fi
+echo "${OUT_PROXY}" | grep -q "web-proxied: ✅" \
+  || { echo "Expected success line for web-proxied via --proxy"; exit 1; }
+
 log "All E2E tests passed ✅"

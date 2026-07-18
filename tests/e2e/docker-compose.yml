@@ -40,3 +40,28 @@ services:
       - ./web-redirecting/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./web-redirecting/index.html:/usr/share/nginx/html/index.html:ro
       - ./web-redirecting/landed.html:/usr/share/nginx/html/landed.html:ro
+
+  # Reachable ONLY via the SOCKS proxy: lives on an isolated network, so a
+  # direct probe from the default network must fail while --proxy succeeds.
+  web-proxied:
+    image: nginx:alpine
+    container_name: csp-e2e-web-proxied
+    ports: []
+    networks:
+      - proxied
+    volumes:
+      - ./web-proxied/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web-proxied/index.html:/usr/share/nginx/html/index.html:ro
+
+  socks-proxy:
+    image: serjs/go-socks5-proxy:latest
+    container_name: csp-e2e-socks-proxy
+    ports: []
+    environment:
+      REQUIRE_AUTH: "false"
+    networks:
+      - default
+      - proxied
+
+networks:
+  proxied: {}

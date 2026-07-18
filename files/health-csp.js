@@ -23,6 +23,7 @@ const puppeteer = require('puppeteer');
 /**
  * Parse CLI args:
  *  - --short
+ *  - --proxy <server>  (Chromium --proxy-server value, e.g. socks5://127.0.0.1:9050)
  *  - --ignore-network-blocks-from <domain ...>
  *  - remaining positional args are target URLs (MUST be full URLs)
  */
@@ -30,6 +31,7 @@ function parseArgs(argv) {
   const args = argv.slice(2); // skip node + script
   const result = {
     shortMode: false,
+    proxy: '',
     ignoreDomains: [],
     urls: [],
   };
@@ -54,6 +56,15 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (token === '--proxy') {
+      i += 1;
+      if (i < args.length) {
+        result.proxy = String(args[i]);
+        i += 1;
+      }
+      continue;
+    }
+
     if (token === '--ignore-network-blocks-from') {
       i += 1;
       while (i < args.length && !String(args[i]).startsWith('--')) {
@@ -71,7 +82,7 @@ function parseArgs(argv) {
   return result;
 }
 
-const { shortMode, ignoreDomains, urls } = parseArgs(process.argv);
+const { shortMode, proxy, ignoreDomains, urls } = parseArgs(process.argv);
 
 function isHttpUrl(s) {
   try {
@@ -263,6 +274,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
       '--disable-dev-shm-usage',
       '--ignore-certificate-errors',
       `--user-data-dir=${process.env.HOME || '/tmp'}/.config/chromium-profile`,
+      ...(proxy ? [`--proxy-server=${proxy}`] : []),
     ],
   });
 
