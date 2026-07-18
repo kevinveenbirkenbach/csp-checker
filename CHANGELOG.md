@@ -1,3 +1,15 @@
+# Changelog
+
+## [2.2.0] - 2026-07-18
+
+Add a *--proxy* CLI option that is passed to Chromium as *--proxy-server*.
+This lets the checker probe Tor hidden services (.onion vhosts) through a
+SOCKS proxy, for example *--proxy socks5://127.0.0.1:9050*; SOCKS5 resolves
+hostnames proxy-side, so .onion targets need no local DNS. When unset the
+checker keeps its direct connection. Ships an isolated-network e2e fixture
+proving both directions (unreachable directly, reachable via the proxy)
+plus lint and dependabot workflows.
+
 ## [2.1.2] - 2026-05-23
 
 * Fix Fatal: Execution context was destroyed, most likely because of a navigation when an app fires a client-side navigation after the initial domcontentloaded (e.g. LAM session redirect, meta-refresh, inline location.href assignment). page.evaluate now retries on the destroyed-context error, waiting for the next navigation to commit before reading window.__cspViolations from the new document. evaluateOnNewDocument reinstalls the violation collector on every document, so the retry returns the violations from the final document.
