@@ -7,7 +7,7 @@
       "test": "echo \"No tests specified\" && exit 0"
     },
     "dependencies": {
-      "puppeteer": "^20.0.0"
+      "puppeteer": "^25.4.0"
     },
     "engines": {
       "node": ">=18"
