@@ -3,3 +3,4 @@ npm-debug.log*
 __pycache__/
 *.py[cod]
 tests/e2e/web-tls-selfsigned/certs/
+.mcp.json
