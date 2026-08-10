@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.2.1] - 2026-08-10
+
+* Bump Puppeteer 20.9.0 → 25.5.0 and the GitHub Actions
+(metadata/login/setup-buildx/build-push, setup-node) to current majors.
+* Add workflow concurrency groups keyed by workflow and ref, so a new push
+supersedes running lint and e2e checks; the tag build queues instead of
+cancelling to keep registry pushes intact.
+* Ignore .mcp.json.
+
 ## [2.2.0] - 2026-07-18
 
 Add a *--proxy* CLI option that is passed to Chromium as *--proxy-server*.
