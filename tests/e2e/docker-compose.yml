@@ -41,6 +41,14 @@ services:
       - ./web-redirecting/index.html:/usr/share/nginx/html/index.html:ro
       - ./web-redirecting/landed.html:/usr/share/nginx/html/landed.html:ro
 
+  web-slow:
+    image: python:3-alpine
+    container_name: csp-e2e-web-slow
+    ports: []
+    command: ["python3", "/srv/server.py"]
+    volumes:
+      - ./web-slow/server.py:/srv/server.py:ro
+
   # Reachable ONLY via the SOCKS proxy: lives on an isolated network, so a
   # direct probe from the default network must fail while --proxy succeeds.
   web-proxied:

@@ -24,6 +24,7 @@ const puppeteer = require('puppeteer');
  * Parse CLI args:
  *  - --short
  *  - --proxy <server>  (Chromium --proxy-server value, e.g. socks5://127.0.0.1:9050)
+ *  - --timeout <ms>    (navigation budget per URL until domcontentloaded, default 20000)
  *  - --ignore-network-blocks-from <domain ...>
  *  - remaining positional args are target URLs (MUST be full URLs)
  */
@@ -32,6 +33,7 @@ function parseArgs(argv) {
   const result = {
     shortMode: false,
     proxy: '',
+    timeoutMs: 20000,
     ignoreDomains: [],
     urls: [],
   };
@@ -65,6 +67,13 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (token === '--timeout') {
+      i += 1;
+      result.timeoutMs = Number(args[i]);
+      i += 1;
+      continue;
+    }
+
     if (token === '--ignore-network-blocks-from') {
       i += 1;
       while (i < args.length && !String(args[i]).startsWith('--')) {
@@ -82,7 +91,12 @@ function parseArgs(argv) {
   return result;
 }
 
-const { shortMode, proxy, ignoreDomains, urls } = parseArgs(process.argv);
+const { shortMode, proxy, timeoutMs, ignoreDomains, urls } = parseArgs(process.argv);
+
+if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+  console.error('--timeout expects a positive integer number of milliseconds.');
+  process.exit(1);
+}
 
 function isHttpUrl(s) {
   try {
@@ -279,7 +293,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
   });
 
   for (const url of urls) {
-    const opts = { waitUntil: 'domcontentloaded', timeout: 20000 };
+    const opts = { waitUntil: 'domcontentloaded', timeout: timeoutMs };
 
     let response, page, blockedResources;
     let parsed;

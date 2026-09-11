@@ -110,6 +110,19 @@ docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
 
 ---
 
+### Navigation timeout
+
+Set how long each URL may take to reach `domcontentloaded`, in milliseconds (default `20000`):
+
+```bash
+docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
+  --proxy socks5://127.0.0.1:9050 \
+  --timeout 100000 \
+  -- http://example.onion/
+```
+
+---
+
 ## 🧾 Exit Codes
 
 | Code | Meaning                                             |

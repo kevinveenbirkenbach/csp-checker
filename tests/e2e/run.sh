@@ -38,7 +38,7 @@ NETWORK="${PROJECT}_default"
 
 # small wait loop for nginx readiness (curl -k so the same loop covers http + https-selfsigned)
 log "Wait for nginx services"
-for svc_pair in "web-ok:http" "web-bad:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http"; do
+for svc_pair in "web-ok:http" "web-bad:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http" "web-slow:http"; do
   svc="${svc_pair%:*}"
   proto="${svc_pair#*:}"
   for i in {1..30}; do
@@ -189,5 +189,79 @@ if [[ "${RC_PROXY}" -ne 0 ]]; then
 fi
 echo "${OUT_PROXY}" | grep -q "web-proxied: ✅" \
   || { echo "Expected success line for web-proxied via --proxy"; exit 1; }
+
+log "Test 8: --timeout bounds the navigation; an invalid value is rejected"
+set +e
+OUT_TIMEOUT="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" --timeout 1 "http://web-ok/" 2>&1)"
+RC_TIMEOUT=$?
+set -e
+echo "${OUT_TIMEOUT}"
+if [[ "${RC_TIMEOUT}" -eq 0 ]]; then
+  echo "Expected non-zero exit code with --timeout 1, got 0"
+  exit 1
+fi
+echo "${OUT_TIMEOUT}" | grep -q "Navigation timeout of 1 ms exceeded" \
+  || { echo "Expected the 1 ms budget to reach page.goto"; exit 1; }
+
+set +e
+OUT_LONG="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" --timeout 45000 "http://web-ok/" 2>&1)"
+RC_LONG=$?
+set -e
+echo "${OUT_LONG}"
+if [[ "${RC_LONG}" -ne 0 ]]; then
+  echo "Expected exit code 0 with --timeout 45000, got ${RC_LONG}"
+  exit 1
+fi
+
+for invalid in abc 0 -5 1.5; do
+  set +e
+  OUT_INVALID="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" --timeout "${invalid}" "http://web-ok/" 2>&1)"
+  RC_INVALID=$?
+  set -e
+  echo "${OUT_INVALID}"
+  if [[ "${RC_INVALID}" -ne 1 ]]; then
+    echo "Expected exit code 1 for --timeout ${invalid}, got ${RC_INVALID}"
+    exit 1
+  fi
+  echo "${OUT_INVALID}" | grep -q -- "--timeout expects a positive integer number of milliseconds." \
+    || { echo "Expected the --timeout validation message for ${invalid}"; exit 1; }
+done
+
+log "Test 9: --timeout budgets a slow page, and the default stays 20000 ms"
+set +e
+OUT_SLOW_SHORT="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" --timeout 2000 "http://web-slow/?delay=5" 2>&1)"
+RC_SLOW_SHORT=$?
+set -e
+echo "${OUT_SLOW_SHORT}"
+if [[ "${RC_SLOW_SHORT}" -eq 0 ]]; then
+  echo "Expected a 2000 ms budget to fail a page that answers after 5 s, got 0"
+  exit 1
+fi
+echo "${OUT_SLOW_SHORT}" | grep -q "Navigation timeout of 2000 ms exceeded" \
+  || { echo "Expected the 2000 ms navigation timeout for the slow page"; exit 1; }
+
+set +e
+OUT_SLOW_LONG="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" --timeout 15000 "http://web-slow/?delay=5" 2>&1)"
+RC_SLOW_LONG=$?
+set -e
+echo "${OUT_SLOW_LONG}"
+if [[ "${RC_SLOW_LONG}" -ne 0 ]]; then
+  echo "Expected a 15000 ms budget to reach a page that answers after 5 s, got ${RC_SLOW_LONG}"
+  exit 1
+fi
+echo "${OUT_SLOW_LONG}" | grep -q "web-slow: ✅ reachable via HTTP" \
+  || { echo "Expected 'reachable via HTTP' for the slow page with a 15000 ms budget"; exit 1; }
+
+set +e
+OUT_SLOW_DEFAULT="$(timeout 90s docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-slow/?delay=30" 2>&1)"
+RC_SLOW_DEFAULT=$?
+set -e
+echo "${OUT_SLOW_DEFAULT}"
+if [[ "${RC_SLOW_DEFAULT}" -eq 0 ]]; then
+  echo "Expected the default budget to fail a page that answers after 30 s, got 0"
+  exit 1
+fi
+echo "${OUT_SLOW_DEFAULT}" | grep -q "Navigation timeout of 20000 ms exceeded" \
+  || { echo "Expected the default navigation budget to stay 20000 ms"; exit 1; }
 
 log "All E2E tests passed ✅"
