@@ -16,8 +16,8 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # 4. Create a non-root user for running Chromium in its sandbox
-RUN addgroup -S pptruser \
- && adduser  -S -G pptruser pptruser \
+RUN addgroup -S -g 10001 pptruser \
+ && adduser  -S -D -u 10001 -G pptruser pptruser \
  && mkdir -p /opt/csp-checker \
  && chown -R pptruser:pptruser /opt/csp-checker
 
@@ -27,7 +27,7 @@ RUN mkdir -p /home/pptruser/.pki/nssdb /home/pptruser/.config/chromium-profile \
  && chown -R pptruser:pptruser /home/pptruser
 
 # 5. Switch to that user
-USER pptruser
+USER 10001:10001
 
 # 6. Set working directory
 WORKDIR /opt/csp-checker
