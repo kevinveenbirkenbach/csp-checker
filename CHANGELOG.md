@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0] - 2026-09-12
+
+* CLI: *--timeout* sets the per-URL navigation budget in ms, default 20000
+* Tor: a larger budget lets slow onion pages finish before the check aborts
+* Validation: a non-positive or non-integer *--timeout* exits 1 with a message
+* Test coverage: a slow fixture pins both budgets and the unchanged default
+
 ## [2.2.1] - 2026-08-10
 
 * Bump Puppeteer 20.9.0 → 25.5.0 and the GitHub Actions
