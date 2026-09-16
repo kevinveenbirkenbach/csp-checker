@@ -28,22 +28,6 @@ The container exits with a **non-zero exit code** if any URL reports violations 
 
 ---
 
-## ⚠️ Breaking Change (v2.0.0)
-
-Starting with **v2.0.0**, the checker is **URL-only**:
-
-- ✅ **Only full URLs are accepted**
-  - `http://example.com/`
-  - `https://example.com/login`
-- ❌ **No domain-only input**
-  - `example.com` ❌
-- ❌ **No HTTPS/HTTP probing**
-- ❌ **No automatic fallback**
-
-The checker navigates **exactly** to the provided URL.
-
----
-
 ## 🐳 Docker Image
 
 Images are published to **GitHub Container Registry (GHCR)**:
@@ -107,6 +91,21 @@ docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
 ```
 
 > ℹ️ The `--` separator ensures everything after it is treated as a URL.
+
+---
+
+### Accept a status code a host serves by design
+
+Declare per host, comma-separated for several codes, repeatable for several
+hosts. The page is navigated and CSP-checked as usual:
+
+```bash
+docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
+  --accept-status auth.example.org=401,403 mirror.example.org=404 \
+  -- https://auth.example.org/ https://mirror.example.org/
+```
+
+The host must match the URL's hostname exactly; no subdomain suffixes.
 
 ---
 

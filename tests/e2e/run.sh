@@ -38,7 +38,7 @@ NETWORK="${PROJECT}_default"
 
 # small wait loop for nginx readiness (curl -k so the same loop covers http + https-selfsigned)
 log "Wait for nginx services"
-for svc_pair in "web-ok:http" "web-bad:http" "web-404-by-design:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http" "web-slow:http"; do
+for svc_pair in "web-ok:http" "web-bad:http" "web-404-by-design:http" "web-401-by-design:http" "web-redirect-to-bad:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http" "web-slow:http"; do
   svc="${svc_pair%:*}"
   proto="${svc_pair#*:}"
   for i in {1..30}; do
@@ -289,5 +289,46 @@ if [[ "${RC_404_ACCEPTED}" -ne 0 ]]; then
 fi
 echo "${OUT_404_ACCEPTED}" | grep -q "web-404-by-design: ✅ No CSP or network blocks detected\." \
   || { echo "Expected the page's CSP to still be checked, not skipped"; exit 1; }
+
+log "Test: 401 is no longer healthy by default and must be declared"
+set +e
+OUT_401_DEFAULT="$(docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-401-by-design/" 2>&1)"
+RC_401_DEFAULT=$?
+set -e
+echo "${OUT_401_DEFAULT}"
+if [[ "${RC_401_DEFAULT}" -eq 0 ]]; then
+  echo "Expected 401 to fail without --accept-status, got 0"
+  exit 1
+fi
+echo "${OUT_401_DEFAULT}" | grep -q "Status 401" \
+  || { echo "Expected the failure to name status 401"; exit 1; }
+
+set +e
+OUT_401_ACCEPTED="$(docker run --rm --network "${NETWORK}" "${IMAGE}" \
+  --accept-status "web-401-by-design=401" -- "http://web-401-by-design/" 2>&1)"
+RC_401_ACCEPTED=$?
+set -e
+echo "${OUT_401_ACCEPTED}"
+if [[ "${RC_401_ACCEPTED}" -ne 0 ]]; then
+  echo "Expected the declared 401 to be accepted, got ${RC_401_ACCEPTED}"
+  exit 1
+fi
+echo "${OUT_401_ACCEPTED}" | grep -q "web-401-by-design: ✅ No CSP or network blocks detected\." \
+  || { echo "Expected the login wall's own CSP to still be checked"; exit 1; }
+
+log "Test: a violation on a redirect target is reported, not discarded"
+set +e
+OUT_REDIR_BAD="$(docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-redirect-to-bad/" 2>&1)"
+RC_REDIR_BAD=$?
+set -e
+echo "${OUT_REDIR_BAD}"
+if [[ "${RC_REDIR_BAD}" -eq 0 ]]; then
+  echo "Expected the redirect target's CSP violation to fail the run, got 0"
+  exit 1
+fi
+echo "${OUT_REDIR_BAD}" | grep -q "followed 1 redirect(s) to http://web-redirect-to-bad/landed" \
+  || { echo "Expected the redirect to be named with its final URL"; exit 1; }
+echo "${OUT_REDIR_BAD}" | grep -q "web-redirect-to-bad: ❌ Blocked resources detected" \
+  || { echo "Expected the violation behind the redirect to be reported, not swallowed"; exit 1; }
 
 log "All E2E tests passed ✅"

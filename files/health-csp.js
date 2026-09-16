@@ -5,7 +5,8 @@
 // - NOT backward compatible: accepts ONLY full URLs (http:// or https://)
 // - Does NOT probe ports 80/443
 // - Navigates exactly to the given URL
-// - Ignores redirect chains (same behavior as before)
+// - Treats only 2xx as healthy; every other status must be declared via --accept-status
+// - Follows redirect chains and judges the document they land on
 // - Collects CSP violations via CDP + DOM events
 // - Collects "blocked" network failures (e.g., ORB) unless ignored via --ignore-network-blocks-from
 //
@@ -13,6 +14,7 @@
 //   node health-csp.js http://baserow.infinito.example/
 //   node health-csp.js --short -- http://baserow.infinito.example/login https://example.org/
 //   node health-csp.js --ignore-network-blocks-from cdn.example.org -- https://example.org/
+//   node health-csp.js --accept-status auth.example.org=401,403 -- https://auth.example.org/
 //
 // Exit codes:
 //   0  -> no violations on all URLs
@@ -289,8 +291,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
     if (!res) throw new Error('No response');
 
     const status = res.status();
-    // allow 401 and 403 (reachable but unauthorized/forbidden)
-    if (status >= 400 && status !== 401 && status !== 403 && !acceptsStatus(url, status)) {
+    if (status >= 300 && !acceptsStatus(url, status)) {
       throw new Error(`Status ${status}`);
     }
 
@@ -346,12 +347,9 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
       blockedResources.push(Object.assign({ type: 'csp-dom' }, v));
     });
 
-    // Ignore redirect chains
     const redirectChain = response.request().redirectChain();
     if (redirectChain.length > 0) {
-      console.log(`${parsed.host}: 👻 Ignored because of redirect (HTTP ${response.status()})`);
-      await page.close();
-      continue;
+      console.log(`${parsed.host}: ↪️ followed ${redirectChain.length} redirect(s) to ${page.url()}`);
     }
 
     // Report results

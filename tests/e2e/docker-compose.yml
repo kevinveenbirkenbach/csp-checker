@@ -15,6 +15,22 @@ services:
       - ./web-404-by-design/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./web-404-by-design/index.html:/usr/share/nginx/html/index.html:ro
 
+  web-401-by-design:
+    image: nginx:alpine
+    container_name: csp-e2e-web-401-by-design
+    ports: []
+    volumes:
+      - ./web-401-by-design/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web-401-by-design/index.html:/usr/share/nginx/html/index.html:ro
+
+  web-redirect-to-bad:
+    image: nginx:alpine
+    container_name: csp-e2e-web-redirect-to-bad
+    ports: []
+    volumes:
+      - ./web-redirect-to-bad/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web-redirect-to-bad/index.html:/usr/share/nginx/html/index.html:ro
+
   web-bad:
     image: nginx:alpine
     container_name: csp-e2e-web-bad
