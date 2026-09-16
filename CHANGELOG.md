@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.0.0] - 2026-09-16
+
+* Status: only 2xx is healthy; 401 and 403 lose their hardcoded pass
+* CLI: *--accept-status host=code[,code]* declares a by-design status per host
+* Unlike *--skip-domain* the declared page stays under CSP inspection
+* Redirects: the chain is followed, printed, and the final document judged
+* A violation on a redirect target is reported instead of being discarded
+* Tests: fixtures for a 404 root, a 401 root, and a 302 to a violating target
+
 ## [2.3.0] - 2026-09-12
 
 * CLI: *--timeout* sets the per-URL navigation budget in ms, default 20000
