@@ -26,6 +26,7 @@ const puppeteer = require('puppeteer');
  *  - --proxy <server>  (Chromium --proxy-server value, e.g. socks5://127.0.0.1:9050)
  *  - --timeout <ms>    (navigation budget per URL until domcontentloaded, default 20000)
  *  - --ignore-network-blocks-from <domain ...>
+ *  - --accept-status <host>=<code>[,<code>] ...
  *  - remaining positional args are target URLs (MUST be full URLs)
  */
 function parseArgs(argv) {
@@ -35,6 +36,7 @@ function parseArgs(argv) {
     proxy: '',
     timeoutMs: 20000,
     ignoreDomains: [],
+    acceptStatus: new Map(),
     urls: [],
   };
 
@@ -83,6 +85,23 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (token === '--accept-status') {
+      i += 1;
+      while (i < args.length && !String(args[i]).startsWith('--')) {
+        const [host, codes] = String(args[i]).split('=');
+        if (host && codes) {
+          const accepted = result.acceptStatus.get(host) || new Set();
+          for (const code of codes.split(',')) {
+            const parsed = Number(code);
+            if (Number.isInteger(parsed)) accepted.add(parsed);
+          }
+          result.acceptStatus.set(host, accepted);
+        }
+        i += 1;
+      }
+      continue;
+    }
+
     // Positional URL
     result.urls.push(token);
     i += 1;
@@ -91,7 +110,7 @@ function parseArgs(argv) {
   return result;
 }
 
-const { shortMode, proxy, timeoutMs, ignoreDomains, urls } = parseArgs(process.argv);
+const { shortMode, proxy, timeoutMs, ignoreDomains, acceptStatus, urls } = parseArgs(process.argv);
 
 if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
   console.error('--timeout expects a positive integer number of milliseconds.');
@@ -249,6 +268,14 @@ async function safeEvaluate(page, fn, { retries = 3, settleMs = 750 } = {}) {
   return undefined;
 }
 
+function acceptsStatus(url, status) {
+  try {
+    return Boolean(acceptStatus.get(new URL(url).hostname)?.has(status));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Navigate to an URL using a fresh instrumented page.
  * Returns:
@@ -263,7 +290,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
 
     const status = res.status();
     // allow 401 and 403 (reachable but unauthorized/forbidden)
-    if (status >= 400 && status !== 401 && status !== 403) {
+    if (status >= 400 && status !== 401 && status !== 403 && !acceptsStatus(url, status)) {
       throw new Error(`Status ${status}`);
     }
 

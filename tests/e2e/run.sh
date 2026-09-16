@@ -38,11 +38,11 @@ NETWORK="${PROJECT}_default"
 
 # small wait loop for nginx readiness (curl -k so the same loop covers http + https-selfsigned)
 log "Wait for nginx services"
-for svc_pair in "web-ok:http" "web-bad:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http" "web-slow:http"; do
+for svc_pair in "web-ok:http" "web-bad:http" "web-404-by-design:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http" "web-slow:http"; do
   svc="${svc_pair%:*}"
   proto="${svc_pair#*:}"
   for i in {1..30}; do
-    if docker run --rm --network "${NETWORK}" curlimages/curl:8.10.1 -fkS "${proto}://${svc}/" >/dev/null 2>&1; then
+    if docker run --rm --network "${NETWORK}" curlimages/curl:8.10.1 -kS "${proto}://${svc}/" >/dev/null 2>&1; then
       echo "OK: ${svc}"
       break
     fi
@@ -263,5 +263,31 @@ if [[ "${RC_SLOW_DEFAULT}" -eq 0 ]]; then
 fi
 echo "${OUT_SLOW_DEFAULT}" | grep -q "Navigation timeout of 20000 ms exceeded" \
   || { echo "Expected the default navigation budget to stay 20000 ms"; exit 1; }
+
+log "Test: a 4xx root fails by default and passes when --accept-status declares it healthy"
+set +e
+OUT_404_DEFAULT="$(docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-404-by-design/" 2>&1)"
+RC_404_DEFAULT=$?
+set -e
+echo "${OUT_404_DEFAULT}"
+if [[ "${RC_404_DEFAULT}" -eq 0 ]]; then
+  echo "Expected a 404 root to fail without --accept-status, got 0"
+  exit 1
+fi
+echo "${OUT_404_DEFAULT}" | grep -q "Status 404" \
+  || { echo "Expected the failure to name the status code; ERR_INVALID_RESPONSE here means the fixture lost its default_type and the browser refused the body before any status was observed"; exit 1; }
+
+set +e
+OUT_404_ACCEPTED="$(docker run --rm --network "${NETWORK}" "${IMAGE}" \
+  --accept-status "web-404-by-design=404" -- "http://web-404-by-design/" 2>&1)"
+RC_404_ACCEPTED=$?
+set -e
+echo "${OUT_404_ACCEPTED}"
+if [[ "${RC_404_ACCEPTED}" -ne 0 ]]; then
+  echo "Expected the declared status to be accepted, got ${RC_404_ACCEPTED}"
+  exit 1
+fi
+echo "${OUT_404_ACCEPTED}" | grep -q "web-404-by-design: ✅ No CSP or network blocks detected\." \
+  || { echo "Expected the page's CSP to still be checked, not skipped"; exit 1; }
 
 log "All E2E tests passed ✅"

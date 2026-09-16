@@ -7,6 +7,14 @@ services:
       - ./web-ok/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./web-ok/index.html:/usr/share/nginx/html/index.html:ro
 
+  web-404-by-design:
+    image: nginx:alpine
+    container_name: csp-e2e-web-404-by-design
+    ports: []
+    volumes:
+      - ./web-404-by-design/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./web-404-by-design/index.html:/usr/share/nginx/html/index.html:ro
+
   web-bad:
     image: nginx:alpine
     container_name: csp-e2e-web-bad
