@@ -334,6 +334,29 @@ if echo "${OUT_204}" | grep -q "web-204-bodyless: ✅ No CSP"; then
   exit 1
 fi
 
+log "Test: many URLs in one run keep their own verdict and one failure still fails"
+set +e
+OUT_MANY="$(timeout 120s docker run --rm --network "${NETWORK}" "${IMAGE}" \
+  "http://web-ok/" "http://web-204-bodyless/" "http://web-200-download/" \
+  "http://web-204-bodyless/" 2>&1)"
+RC_MANY=$?
+set -e
+echo "${OUT_MANY}"
+if [[ "${RC_MANY}" -eq 0 ]]; then
+  echo "One unreachable host among many must still make the whole run fail"
+  exit 1
+fi
+echo "${OUT_MANY}" | grep -q "web-ok: ✅ reachable via HTTP (200)" \
+  || { echo "A healthy host must stay healthy when checked alongside others"; exit 1; }
+echo "${OUT_MANY}" | grep -q "web-200-download: ❌" \
+  || { echo "The aborting download must still be reported as unreachable"; exit 1; }
+SEEN_204="$(echo "${OUT_MANY}" | grep -c "web-204-bodyless: ✅ reachable via HTTP (204), no document to check")"
+if [[ "${SEEN_204}" -ne 2 ]]; then
+  echo "The 204 verdict must hold on every visit, got ${SEEN_204} of 2;"
+  echo "a lower count means per-page state leaked between URLs of one run"
+  exit 1
+fi
+
 log "Test: 401 is no longer healthy by default and must be declared"
 set +e
 OUT_401_DEFAULT="$(docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-401-by-design/" 2>&1)"

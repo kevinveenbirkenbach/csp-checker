@@ -23,6 +23,25 @@
 const puppeteer = require('puppeteer');
 
 const NO_CONTENT = 204;
+const DOCUMENT_STATUS_WAIT_MS = 2000;
+const PAGE_CLOSE_WAIT_MS = 500;
+
+/**
+ * Close a page without waiting forever.
+ *
+ * `page.close()` does not return while the page is committing a navigation,
+ * which the abort path reaches once the document status has been awaited.
+ *
+ * @param {import('puppeteer').Page} page page to close
+ * @param {number} timeoutMs milliseconds to wait before giving up on the close
+ * @returns {Promise<void>} resolves on close or on the deadline, never rejects
+ */
+function closeBounded(page, timeoutMs) {
+  return Promise.race([
+    page.close().catch(() => {}),
+    new Promise(resolve => setTimeout(resolve, timeoutMs).unref()),
+  ]);
+}
 
 /**
  * Parse CLI args:
@@ -203,8 +222,6 @@ async function createInstrumentedPage(browser, ignoreDomainsList) {
 
   const blockedResources = [];
 
-  const documentResponses = [];
-
   // 1) CDP: Listen for CSP via DevTools Protocol
   const client = await page.target().createCDPSession();
   await client.send('Security.enable');
@@ -236,15 +253,28 @@ async function createInstrumentedPage(browser, ignoreDomainsList) {
 
   // 3) Network: the status of a navigation that never commits, and block reasons
   let documentRequestId = null;
+  let documentStatus = null;
+  const documentStatusWaiters = [];
   await client.send('Network.enable');
   client.on('Network.requestWillBeSent', event => {
     if (event.type === 'Document') documentRequestId = event.requestId;
   });
   client.on('Network.responseReceivedExtraInfo', event => {
-    if (event.requestId === documentRequestId) {
-      documentResponses.push({ status: event.statusCode });
-    }
+    if (event.requestId !== documentRequestId) return;
+    documentStatus = event.statusCode;
+    documentStatusWaiters.splice(0).forEach(resolve => resolve(documentStatus));
   });
+
+  const awaitDocumentStatus = timeoutMs => {
+    if (documentStatus !== null) return Promise.resolve(documentStatus);
+    return new Promise(resolve => {
+      const timer = setTimeout(() => resolve(null), timeoutMs);
+      documentStatusWaiters.push(status => {
+        clearTimeout(timer);
+        resolve(status);
+      });
+    });
+  };
 
   page.on('requestfailed', request => {
     const failure = request.failure();
@@ -264,7 +294,7 @@ async function createInstrumentedPage(browser, ignoreDomainsList) {
     }
   });
 
-  return { page, blockedResources, client, documentResponses };
+  return { page, blockedResources, client, awaitDocumentStatus };
 }
 
 // Retry page.evaluate on "Execution context was destroyed" thrown by mid-navigation races.
@@ -300,7 +330,7 @@ function acceptsStatus(url, status) {
  *  - { response, page, blockedResources }
  */
 async function gotoUrl(browser, url, opts, ignoreDomainsList) {
-  const { page, blockedResources, documentResponses } = await createInstrumentedPage(
+  const { page, blockedResources, awaitDocumentStatus } = await createInstrumentedPage(
     browser,
     ignoreDomainsList,
   );
@@ -316,9 +346,9 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
 
     return { response: res, page, blockedResources };
   } catch (err) {
-    const last = documentResponses[documentResponses.length - 1];
-    try { await page.close(); } catch {}
-    if (last && last.status === NO_CONTENT) return { documentless: last.status };
+    const status = await awaitDocumentStatus(DOCUMENT_STATUS_WAIT_MS);
+    await closeBounded(page, PAGE_CLOSE_WAIT_MS);
+    if (status === NO_CONTENT) return { documentless: status };
     throw err;
   }
 }
