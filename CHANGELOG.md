@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.0.2] - 2026-09-17
+
+* Status: a 204 counts as reachable instead of unreachable
+* Chromium cancels the navigation, so page.goto throws and yields no response
+* The status survives on the response event, which nothing was listening for
+* A 204 reports *no document to check*: page.url is about:blank afterwards
+* Exactly 204, not the 2xx range: a 200 with Content-Disposition is a download
+* Tests: a 204 fixture that passes, a download fixture that must keep failing
+
 ## [3.0.1] - 2026-09-17
 
 * Status: a 304 revalidation counts as reachable again
