@@ -22,6 +22,8 @@
 
 const puppeteer = require('puppeteer');
 
+const NO_CONTENT = 204;
+
 /**
  * Parse CLI args:
  *  - --short
@@ -201,6 +203,13 @@ async function createInstrumentedPage(browser, ignoreDomainsList) {
 
   const blockedResources = [];
 
+  const documentResponses = [];
+  page.on('response', res => {
+    if (res.request().resourceType() === 'document') {
+      documentResponses.push({ url: res.url(), status: res.status() });
+    }
+  });
+
   // 1) CDP: Listen for CSP via DevTools Protocol
   const client = await page.target().createCDPSession();
   await client.send('Security.enable');
@@ -248,7 +257,7 @@ async function createInstrumentedPage(browser, ignoreDomainsList) {
     }
   });
 
-  return { page, blockedResources, client };
+  return { page, blockedResources, client, documentResponses };
 }
 
 // Retry page.evaluate on "Execution context was destroyed" thrown by mid-navigation races.
@@ -284,7 +293,10 @@ function acceptsStatus(url, status) {
  *  - { response, page, blockedResources }
  */
 async function gotoUrl(browser, url, opts, ignoreDomainsList) {
-  const { page, blockedResources } = await createInstrumentedPage(browser, ignoreDomainsList);
+  const { page, blockedResources, documentResponses } = await createInstrumentedPage(
+    browser,
+    ignoreDomainsList,
+  );
 
   try {
     const res = await page.goto(url, opts);
@@ -297,7 +309,9 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
 
     return { response: res, page, blockedResources };
   } catch (err) {
+    const last = documentResponses[documentResponses.length - 1];
     try { await page.close(); } catch {}
+    if (last && last.status === NO_CONTENT) return { documentless: last.status };
     throw err;
   }
 }
@@ -323,7 +337,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
   for (const url of urls) {
     const opts = { waitUntil: 'domcontentloaded', timeout: timeoutMs };
 
-    let response, page, blockedResources;
+    let response, page, blockedResources, documentless;
     let parsed;
     try {
       parsed = new URL(url);
@@ -334,8 +348,15 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
     }
 
     try {
-      ({ response, page, blockedResources } = await gotoUrl(browser, url, opts, ignoreDomains));
-      console.log(`${parsed.host}: ✅ reachable via ${parsed.protocol.replace(':', '').toUpperCase()} (${response.status()})`);
+      ({ response, page, blockedResources, documentless } = await gotoUrl(
+        browser, url, opts, ignoreDomains,
+      ));
+      const scheme = parsed.protocol.replace(':', '').toUpperCase();
+      if (documentless) {
+        console.log(`${parsed.host}: ✅ reachable via ${scheme} (${documentless}), no document to check`);
+        continue;
+      }
+      console.log(`${parsed.host}: ✅ reachable via ${scheme} (${response.status()})`);
     } catch (err) {
       console.error(`${parsed.host}: ❌ Unable to reach ${url} (${err.message})`);
       errorCount++;

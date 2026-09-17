@@ -31,6 +31,20 @@ services:
       - ./web-304-revalidated/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./web-304-revalidated/index.html:/usr/share/nginx/html/index.html:ro
 
+  web-204-bodyless:
+    image: nginx:alpine
+    container_name: csp-e2e-web-204-bodyless
+    ports: []
+    volumes:
+      - ./web-204-bodyless/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
+  web-200-download:
+    image: nginx:alpine
+    container_name: csp-e2e-web-200-download
+    ports: []
+    volumes:
+      - ./web-200-download/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
   web-redirect-to-bad:
     image: nginx:alpine
     container_name: csp-e2e-web-redirect-to-bad

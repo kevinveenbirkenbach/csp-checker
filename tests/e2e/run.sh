@@ -38,7 +38,7 @@ NETWORK="${PROJECT}_default"
 
 # small wait loop for nginx readiness (curl -k so the same loop covers http + https-selfsigned)
 log "Wait for nginx services"
-for svc_pair in "web-ok:http" "web-bad:http" "web-404-by-design:http" "web-401-by-design:http" "web-304-revalidated:http" "web-redirect-to-bad:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http" "web-slow:http"; do
+for svc_pair in "web-ok:http" "web-bad:http" "web-404-by-design:http" "web-401-by-design:http" "web-304-revalidated:http" "web-204-bodyless:http" "web-200-download:http" "web-redirect-to-bad:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http" "web-slow:http"; do
   svc="${svc_pair%:*}"
   proto="${svc_pair#*:}"
   for i in {1..30}; do
@@ -305,6 +305,34 @@ echo "${OUT_304}" | grep -q "web-304-revalidated: ✅ reachable via HTTP (304)" 
   || { echo "Expected the second visit to revalidate to 304; without that line this test proves nothing about 304 handling"; exit 1; }
 echo "${OUT_304}" | grep -q "web-304-revalidated: ✅ No CSP or network blocks detected\." \
   || { echo "Expected the revalidated page's CSP to still be checked, not skipped"; exit 1; }
+
+log "Test: a 200 that aborts is not a 204 and must still fail"
+set +e
+OUT_DL="$(docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-200-download/" 2>&1)"
+RC_DL=$?
+set -e
+echo "${OUT_DL}"
+if [[ "${RC_DL}" -eq 0 ]]; then
+  echo "A download aborts the navigation too; only 204 declares an empty document"
+  exit 1
+fi
+
+log "Test: a 204 is healthy and says it checked nothing"
+set +e
+OUT_204="$(docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-204-bodyless/" 2>&1)"
+RC_204=$?
+set -e
+echo "${OUT_204}"
+if [[ "${RC_204}" -ne 0 ]]; then
+  echo "204 declares an empty document; the 2xx contract calls that healthy, got rc=${RC_204}"
+  exit 1
+fi
+echo "${OUT_204}" | grep -q "web-204-bodyless: ✅ reachable via HTTP (204), no document to check" \
+  || { echo "Expected the 204 to be reported as reachable AND as having checked nothing"; exit 1; }
+if echo "${OUT_204}" | grep -q "web-204-bodyless: ✅ No CSP"; then
+  echo "No document was committed, so claiming a clean CSP result would be a false green"
+  exit 1
+fi
 
 log "Test: 401 is no longer healthy by default and must be declared"
 set +e
