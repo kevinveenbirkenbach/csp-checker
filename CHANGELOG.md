@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.4] - 2026-09-18
+
+* Status: a 204 is finally reported as reachable, not as unreachable
+* 3.0.3 published no image: its release build failed on that same fixture
+* It read the status the moment page.goto rejected, before the event arrived
+* The listener sits on a second CDP session, and two sessions have no order
+* The status is now awaited; an expired deadline rethrows the original error
+* Awaiting delays page.close() into the commit window, where it never returns
+* The close is bounded: unchanged when quick, abandoned after half a second
+* Tests: four URLs in one run, the 204 fixture visited twice must report twice
+
 ## [3.0.3] - 2026-09-17
 
 * Status: the 204 handling from 3.0.2 never fired and is now actually wired
