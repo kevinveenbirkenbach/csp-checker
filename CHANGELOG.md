@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.0.1] - 2026-09-17
+
+* Status: a 304 revalidation counts as reachable again
+* 3.0.0 swept every code above 299 into the failure branch, 304 included
+* A host revisited inside one run answers 304 from cache and must stay healthy
+* Tests: a fixture that serves 200 first and revalidates to 304 on the revisit
+* Build: *make test* runs the three CI linters and the E2E suite instead of nothing
+
 ## [3.0.0] - 2026-09-16
 
 * Status: only 2xx is healthy; 401 and 403 lose their hardcoded pass
