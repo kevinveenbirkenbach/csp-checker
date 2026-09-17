@@ -204,15 +204,11 @@ async function createInstrumentedPage(browser, ignoreDomainsList) {
   const blockedResources = [];
 
   const documentResponses = [];
-  page.on('response', res => {
-    if (res.request().resourceType() === 'document') {
-      documentResponses.push({ url: res.url(), status: res.status() });
-    }
-  });
 
   // 1) CDP: Listen for CSP via DevTools Protocol
   const client = await page.target().createCDPSession();
   await client.send('Security.enable');
+
   client.on('Security.cspViolationReported', event => {
     blockedResources.push({
       type: 'csp-cdp',
@@ -238,7 +234,18 @@ async function createInstrumentedPage(browser, ignoreDomainsList) {
     });
   });
 
-  // 3) Network failures (ORB and other block reasons)
+  // 3) Network: the status of a navigation that never commits, and block reasons
+  let documentRequestId = null;
+  await client.send('Network.enable');
+  client.on('Network.requestWillBeSent', event => {
+    if (event.type === 'Document') documentRequestId = event.requestId;
+  });
+  client.on('Network.responseReceivedExtraInfo', event => {
+    if (event.requestId === documentRequestId) {
+      documentResponses.push({ status: event.statusCode });
+    }
+  });
+
   page.on('requestfailed', request => {
     const failure = request.failure();
     const reason = failure ? failure.errorText : 'unknown';
