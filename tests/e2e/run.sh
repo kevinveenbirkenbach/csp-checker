@@ -38,7 +38,7 @@ NETWORK="${PROJECT}_default"
 
 # small wait loop for nginx readiness (curl -k so the same loop covers http + https-selfsigned)
 log "Wait for nginx services"
-for svc_pair in "web-ok:http" "web-bad:http" "web-404-by-design:http" "web-401-by-design:http" "web-redirect-to-bad:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http" "web-slow:http"; do
+for svc_pair in "web-ok:http" "web-bad:http" "web-404-by-design:http" "web-401-by-design:http" "web-304-revalidated:http" "web-redirect-to-bad:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http" "web-slow:http"; do
   svc="${svc_pair%:*}"
   proto="${svc_pair#*:}"
   for i in {1..30}; do
@@ -289,6 +289,22 @@ if [[ "${RC_404_ACCEPTED}" -ne 0 ]]; then
 fi
 echo "${OUT_404_ACCEPTED}" | grep -q "web-404-by-design: ✅ No CSP or network blocks detected\." \
   || { echo "Expected the page's CSP to still be checked, not skipped"; exit 1; }
+
+log "Test: a revisited page that revalidates to 304 stays healthy without --accept-status"
+set +e
+OUT_304="$(docker run --rm --network "${NETWORK}" "${IMAGE}" \
+  "http://web-304-revalidated/" "http://web-304-revalidated/" 2>&1)"
+RC_304=$?
+set -e
+echo "${OUT_304}"
+if [[ "${RC_304}" -ne 0 ]]; then
+  echo "Expected a 304 revalidation to count as reachable, got ${RC_304}"
+  exit 1
+fi
+echo "${OUT_304}" | grep -q "web-304-revalidated: ✅ reachable via HTTP (304)" \
+  || { echo "Expected the second visit to revalidate to 304; without that line this test proves nothing about 304 handling"; exit 1; }
+echo "${OUT_304}" | grep -q "web-304-revalidated: ✅ No CSP or network blocks detected\." \
+  || { echo "Expected the revalidated page's CSP to still be checked, not skipped"; exit 1; }
 
 log "Test: 401 is no longer healthy by default and must be declared"
 set +e

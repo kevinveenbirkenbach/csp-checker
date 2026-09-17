@@ -5,7 +5,7 @@
 // - NOT backward compatible: accepts ONLY full URLs (http:// or https://)
 // - Does NOT probe ports 80/443
 // - Navigates exactly to the given URL
-// - Treats only 2xx as healthy; every other status must be declared via --accept-status
+// - Treats 2xx and 304 as healthy; every other status must be declared via --accept-status
 // - Follows redirect chains and judges the document they land on
 // - Collects CSP violations via CDP + DOM events
 // - Collects "blocked" network failures (e.g., ORB) unless ignored via --ignore-network-blocks-from
@@ -291,7 +291,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
     if (!res) throw new Error('No response');
 
     const status = res.status();
-    if (status >= 300 && !acceptsStatus(url, status)) {
+    if (status >= 300 && status !== 304 && !acceptsStatus(url, status)) {
       throw new Error(`Status ${status}`);
     }
 
