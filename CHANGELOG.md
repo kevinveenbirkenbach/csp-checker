@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.0.3] - 2026-09-17
+
+* Status: the 204 handling from 3.0.2 never fired and is now actually wired
+* A 204 is not committed, so Chromium emits no Network.responseReceived at all
+* 3.0.2 listened for that event, so the catch read an empty list and gave up
+* responseReceivedExtraInfo carries the status of an uncommitted navigation
+* It is matched to the Document request id so a subresource cannot answer
+* Network.enable on that session leaves the 304 revalidation fixture green
+* Tests: the 204 fixture passes and the download fixture still fails
+
 ## [3.0.2] - 2026-09-17
 
 * Status: a 204 counts as reachable instead of unreachable
