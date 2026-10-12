@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.5] - 2026-10-12
+
+* Scheme: an http:// URL is now probed as http://, no longer upgraded to https first
+* Through Tor the :443 attempt broke onion targets with net::ERR_SOCKS_CONNECTION_FAILED
+* https:// URLs and server-sent redirects behave as before
+
 ## [3.0.4] - 2026-09-18
 
 * Status: a 204 is finally reported as reachable, not as unreachable
