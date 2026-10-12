@@ -366,6 +366,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--ignore-certificate-errors',
+      '--disable-features=HttpsUpgrades,HttpsFirstBalancedModeAutoEnable',
       `--user-data-dir=${process.env.HOME || '/tmp'}/.config/chromium-profile`,
       ...(proxy ? [`--proxy-server=${proxy}`] : []),
     ],
