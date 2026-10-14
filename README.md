@@ -109,6 +109,21 @@ The host must match the URL's hostname exactly; no subdomain suffixes.
 
 ---
 
+### Proxy bypass
+
+Reach the listed hosts directly while `--proxy` serves the rest. The value is a Chromium `--proxy-bypass-list`; a leading dot matches every subdomain:
+
+```bash
+docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
+  --proxy socks5://127.0.0.1:9050 \
+  --proxy-bypass .example.org,auth.example.net \
+  -- http://example.onion/
+```
+
+Without `--proxy` the flag has no effect.
+
+---
+
 ### Navigation timeout
 
 Set how long each URL may take to reach `domcontentloaded`, in milliseconds (default `20000`):

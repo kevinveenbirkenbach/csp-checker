@@ -47,6 +47,7 @@ function closeBounded(page, timeoutMs) {
  * Parse CLI args:
  *  - --short
  *  - --proxy <server>  (Chromium --proxy-server value, e.g. socks5://127.0.0.1:9050)
+ *  - --proxy-bypass <hosts>  (Chromium --proxy-bypass-list value, e.g. .example.org,auth.example.net)
  *  - --timeout <ms>    (navigation budget per URL until domcontentloaded, default 20000)
  *  - --ignore-network-blocks-from <domain ...>
  *  - --accept-status <host>=<code>[,<code>] ...
@@ -57,6 +58,7 @@ function parseArgs(argv) {
   const result = {
     shortMode: false,
     proxy: '',
+    proxyBypass: '',
     timeoutMs: 20000,
     ignoreDomains: [],
     acceptStatus: new Map(),
@@ -64,6 +66,13 @@ function parseArgs(argv) {
   };
 
   let i = 0;
+  const value = flag => {
+    if (i >= args.length || String(args[i]).startsWith('--')) {
+      console.error(`${flag} expects a value.`);
+      process.exit(1);
+    }
+    return String(args[i++]);
+  };
   while (i < args.length) {
     const token = args[i];
 
@@ -89,6 +98,12 @@ function parseArgs(argv) {
         result.proxy = String(args[i]);
         i += 1;
       }
+      continue;
+    }
+
+    if (token === '--proxy-bypass') {
+      i += 1;
+      result.proxyBypass = value(token);
       continue;
     }
 
@@ -133,7 +148,9 @@ function parseArgs(argv) {
   return result;
 }
 
-const { shortMode, proxy, timeoutMs, ignoreDomains, acceptStatus, urls } = parseArgs(process.argv);
+const {
+  shortMode, proxy, proxyBypass, timeoutMs, ignoreDomains, acceptStatus, urls,
+} = parseArgs(process.argv);
 
 if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
   console.error('--timeout expects a positive integer number of milliseconds.');
@@ -369,6 +386,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
       '--disable-features=HttpsUpgrades,HttpsFirstBalancedModeAutoEnable',
       `--user-data-dir=${process.env.HOME || '/tmp'}/.config/chromium-profile`,
       ...(proxy ? [`--proxy-server=${proxy}`] : []),
+      ...(proxy && proxyBypass ? [`--proxy-bypass-list=${proxyBypass}`] : []),
     ],
   });
 

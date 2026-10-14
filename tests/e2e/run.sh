@@ -190,6 +190,32 @@ fi
 echo "${OUT_PROXY}" | grep -q "web-proxied: ✅" \
   || { echo "Expected success line for web-proxied via --proxy"; exit 1; }
 
+log "Test 7b: --proxy-bypass reaches a listed host directly while the proxy serves the rest"
+WEB_OK_IP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' csp-e2e-web-ok)"
+set +e
+OUT_NOBYPASS="$(timeout 60s docker run --rm --network "${NETWORK}" --add-host "bypassed.test:${WEB_OK_IP}" "${IMAGE}" --proxy "socks5://socks-proxy:1080" "http://bypassed.test/" 2>&1)"
+RC_NOBYPASS=$?
+set -e
+echo "${OUT_NOBYPASS}"
+if [[ "${RC_NOBYPASS}" -eq 0 ]]; then
+  echo "Expected bypassed.test to fail through the proxy, which cannot resolve it, got 0"
+  exit 1
+fi
+
+set +e
+OUT_BYPASS="$(timeout 60s docker run --rm --network "${NETWORK}" --add-host "bypassed.test:${WEB_OK_IP}" "${IMAGE}" --proxy "socks5://socks-proxy:1080" --proxy-bypass "bypassed.test" "http://bypassed.test/" "http://web-proxied/" 2>&1)"
+RC_BYPASS=$?
+set -e
+echo "${OUT_BYPASS}"
+if [[ "${RC_BYPASS}" -ne 0 ]]; then
+  echo "Expected exit code 0 with --proxy-bypass bypassed.test, got ${RC_BYPASS}"
+  exit 1
+fi
+echo "${OUT_BYPASS}" | grep -q "bypassed.test: ✅" \
+  || { echo "Expected success line for bypassed.test reached directly"; exit 1; }
+echo "${OUT_BYPASS}" | grep -q "web-proxied: ✅" \
+  || { echo "Expected success line for web-proxied still reached via --proxy"; exit 1; }
+
 log "Test 8: --timeout bounds the navigation; an invalid value is rejected"
 set +e
 OUT_TIMEOUT="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" --timeout 1 "http://web-ok/" 2>&1)"
