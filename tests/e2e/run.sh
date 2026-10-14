@@ -38,7 +38,7 @@ NETWORK="${PROJECT}_default"
 
 # small wait loop for nginx readiness (curl -k so the same loop covers http + https-selfsigned)
 log "Wait for nginx services"
-for svc_pair in "web-ok:http" "web-bad:http" "web-404-by-design:http" "web-401-by-design:http" "web-304-revalidated:http" "web-204-bodyless:http" "web-200-download:http" "web-redirect-to-bad:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http" "web-slow:http"; do
+for svc_pair in "web-ok:http" "web-bad:http" "web-404-by-design:http" "web-401-by-design:http" "web-304-revalidated:http" "web-204-bodyless:http" "web-200-download:http" "web-redirect-to-bad:http" "web-http-only:http" "web-tls-selfsigned:https" "web-redirecting:http" "web-redirect-away:http" "web-slow:http"; do
   svc="${svc_pair%:*}"
   proto="${svc_pair#*:}"
   for i in {1..30}; do
@@ -215,6 +215,72 @@ echo "${OUT_BYPASS}" | grep -q "bypassed.test: ✅" \
   || { echo "Expected success line for bypassed.test reached directly"; exit 1; }
 echo "${OUT_BYPASS}" | grep -q "web-proxied: ✅" \
   || { echo "Expected success line for web-proxied still reached via --proxy"; exit 1; }
+
+log "Test 7c: --confine-to fails a target that ends outside its suffix unless --confine-allow lists the host"
+AWAY_IP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' csp-e2e-web-redirect-away)"
+REDIRECTING_IP="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' csp-e2e-web-redirecting)"
+set +e
+OUT_LEFT="$(timeout 120s docker run --rm --network "${NETWORK}" --add-host "away.test:${AWAY_IP}" "${IMAGE}" --confine-to .test -- "http://away.test/" "http://away.test/bodyless" "http://away.test/bad" "http://web-redirect-away/" 2>&1)"
+RC_LEFT=$?
+set -e
+echo "${OUT_LEFT}"
+if [[ "${RC_LEFT}" -ne 3 ]]; then
+  echo "Expected exactly one error per leaving target (3), got ${RC_LEFT}"
+  exit 1
+fi
+echo "${OUT_LEFT}" | grep -q "away.test: ❌ left .test: ended at http://web-ok/" \
+  || { echo "Expected a confinement finding for away.test"; exit 1; }
+echo "${OUT_LEFT}" | grep -q "away.test: ❌ left .test: ended at http://web-204-bodyless/" \
+  || { echo "Expected a confinement finding for a redirect into a bodyless response"; exit 1; }
+echo "${OUT_LEFT}" | grep -q "away.test: ❌ left .test: ended at http://web-redirect-to-bad/landed" \
+  || { echo "Expected a confinement finding next to the CSP finding"; exit 1; }
+if echo "${OUT_LEFT}" | grep -q "web-redirect-away: ❌ left"; then
+  echo "Expected a target outside the suffix to stay unconfined"
+  exit 1
+fi
+
+set +e
+OUT_ALLOWED="$(timeout 60s docker run --rm --network "${NETWORK}" --add-host "away.test:${AWAY_IP}" --add-host "stay.test:${REDIRECTING_IP}" "${IMAGE}" --confine-to .test. --confine-allow WEB-OK. -- "http://away.test/" "http://stay.test/" 2>&1)"
+RC_ALLOWED=$?
+set -e
+echo "${OUT_ALLOWED}"
+if [[ "${RC_ALLOWED}" -ne 0 ]]; then
+  echo "Expected exit code 0 with --confine-allow web-ok, got ${RC_ALLOWED}"
+  exit 1
+fi
+if echo "${OUT_ALLOWED}" | grep -q "❌ left"; then
+  echo "Expected no confinement finding for an allowed host or a target that stays inside"
+  exit 1
+fi
+
+set +e
+OUT_NODOT="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" --confine-to test -- "http://web-ok/" 2>&1)"
+RC_NODOT=$?
+set -e
+echo "${OUT_NODOT}"
+if [[ "${RC_NODOT}" -eq 0 ]]; then
+  echo "Expected --confine-to without a leading dot to be rejected, got 0"
+  exit 1
+fi
+echo "${OUT_NODOT}" | grep -q -- "--confine-to expects a domain suffix with a leading dot" \
+  || { echo "Expected the --confine-to validation message"; exit 1; }
+
+set +e
+OUT_EMPTYLABEL="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" --confine-to ..test -- "http://web-ok/" 2>&1)"
+RC_EMPTYLABEL=$?
+OUT_NOVALUE="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-ok/" --confine-to 2>&1)"
+RC_NOVALUE=$?
+set -e
+echo "${OUT_EMPTYLABEL}"
+echo "${OUT_NOVALUE}"
+if [[ "${RC_EMPTYLABEL}" -eq 0 ]] || ! echo "${OUT_EMPTYLABEL}" | grep -q -- "--confine-to expects a domain suffix"; then
+  echo "Expected --confine-to with an empty label to be rejected"
+  exit 1
+fi
+if [[ "${RC_NOVALUE}" -eq 0 ]] || ! echo "${OUT_NOVALUE}" | grep -q -- "--confine-to expects a value"; then
+  echo "Expected --confine-to without a value to be rejected instead of silently disabling confinement"
+  exit 1
+fi
 
 log "Test 8: --timeout bounds the navigation; an invalid value is rejected"
 set +e

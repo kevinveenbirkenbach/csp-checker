@@ -124,6 +124,20 @@ Without `--proxy` the flag has no effect.
 
 ---
 
+### Network confinement
+
+Fail a target whose host ends with `--confine-to` when it ends on a host that does not, unless `--confine-allow` lists that host. The suffix needs a leading dot. The checker judges the HTTP redirect chain, including a chain that ends on a `204`, and any client-side navigation that has committed by the time the page is inspected; a later JavaScript redirect and a navigation that ends on a browser error page are not judged. Targets outside the suffix are not checked:
+
+```bash
+docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
+  --proxy socks5://127.0.0.1:9050 \
+  --confine-to .onion \
+  --confine-allow auth.example.org \
+  -- http://example.onion/
+```
+
+---
+
 ### Navigation timeout
 
 Set how long each URL may take to reach `domcontentloaded`, in milliseconds (default `20000`):

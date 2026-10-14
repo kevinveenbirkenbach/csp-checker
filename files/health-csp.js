@@ -21,6 +21,7 @@
 //   >0 -> at least one URL had violations or was unreachable
 
 const puppeteer = require('puppeteer');
+const { domainToASCII } = require('url');
 
 const NO_CONTENT = 204;
 const DOCUMENT_STATUS_WAIT_MS = 2000;
@@ -48,17 +49,32 @@ function closeBounded(page, timeoutMs) {
  *  - --short
  *  - --proxy <server>  (Chromium --proxy-server value, e.g. socks5://127.0.0.1:9050)
  *  - --proxy-bypass <hosts>  (Chromium --proxy-bypass-list value, e.g. .example.org,auth.example.net)
+ *  - --confine-to <suffix>   (a target whose host ends with <suffix> must end on such a host)
+ *  - --confine-allow <host ...>  (final hosts --confine-to accepts outside <suffix>)
  *  - --timeout <ms>    (navigation budget per URL until domcontentloaded, default 20000)
  *  - --ignore-network-blocks-from <domain ...>
  *  - --accept-status <host>=<code>[,<code>] ...
  *  - remaining positional args are target URLs (MUST be full URLs)
  */
+/**
+ * Comparable form of a host: lowercase ASCII, no trailing dot, no IPv6 brackets.
+ *
+ * Args:
+ *   host: a hostname as given on the CLI or by URL.hostname.
+ */
+function bareHost(host) {
+  const h = String(host).toLowerCase().replace(/\.$/, '').replace(/^\[(.*)\]$/, '$1');
+  return domainToASCII(h) || h;
+}
+
 function parseArgs(argv) {
   const args = argv.slice(2); // skip node + script
   const result = {
     shortMode: false,
     proxy: '',
     proxyBypass: '',
+    confineTo: '',
+    confineAllow: new Set(),
     timeoutMs: 20000,
     ignoreDomains: [],
     acceptStatus: new Map(),
@@ -107,6 +123,21 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (token === '--confine-to') {
+      i += 1;
+      result.confineTo = value(token).toLowerCase().replace(/\.$/, '');
+      continue;
+    }
+
+    if (token === '--confine-allow') {
+      i += 1;
+      while (i < args.length && !String(args[i]).startsWith('--')) {
+        result.confineAllow.add(bareHost(args[i]));
+        i += 1;
+      }
+      continue;
+    }
+
     if (token === '--timeout') {
       i += 1;
       result.timeoutMs = Number(args[i]);
@@ -149,11 +180,16 @@ function parseArgs(argv) {
 }
 
 const {
-  shortMode, proxy, proxyBypass, timeoutMs, ignoreDomains, acceptStatus, urls,
+  shortMode, proxy, proxyBypass, confineTo, confineAllow, timeoutMs, ignoreDomains, acceptStatus, urls,
 } = parseArgs(process.argv);
 
 if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
   console.error('--timeout expects a positive integer number of milliseconds.');
+  process.exit(1);
+}
+
+if (confineTo && !/^(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(confineTo)) {
+  console.error('--confine-to expects a domain suffix with a leading dot, e.g. .onion');
   process.exit(1);
 }
 
@@ -273,8 +309,11 @@ async function createInstrumentedPage(browser, ignoreDomainsList) {
   let documentStatus = null;
   const documentStatusWaiters = [];
   await client.send('Network.enable');
+  let documentUrl = null;
   client.on('Network.requestWillBeSent', event => {
-    if (event.type === 'Document') documentRequestId = event.requestId;
+    if (event.type !== 'Document') return;
+    documentRequestId = event.requestId;
+    documentUrl = event.request.url;
   });
   client.on('Network.responseReceivedExtraInfo', event => {
     if (event.requestId !== documentRequestId) return;
@@ -311,7 +350,7 @@ async function createInstrumentedPage(browser, ignoreDomainsList) {
     }
   });
 
-  return { page, blockedResources, client, awaitDocumentStatus };
+  return { page, blockedResources, client, awaitDocumentStatus, documentUrl: () => documentUrl };
 }
 
 // Retry page.evaluate on "Execution context was destroyed" thrown by mid-navigation races.
@@ -342,12 +381,27 @@ function acceptsStatus(url, status) {
 }
 
 /**
+ * Whether a target under --confine-to ended on a host outside it that
+ * --confine-allow does not list.
+ *
+ * Args:
+ *   targetHost: host of the URL the checker was asked to visit.
+ *   finalUrl: URL of the document the navigation ended on.
+ */
+function leftConfinement(targetHost, finalUrl) {
+  if (!confineTo || !bareHost(targetHost).endsWith(confineTo)) return false;
+  if (!isHttpUrl(finalUrl)) return false;
+  const finalHost = bareHost(new URL(finalUrl).hostname);
+  return !finalHost.endsWith(confineTo) && !confineAllow.has(finalHost);
+}
+
+/**
  * Navigate to an URL using a fresh instrumented page.
  * Returns:
  *  - { response, page, blockedResources }
  */
 async function gotoUrl(browser, url, opts, ignoreDomainsList) {
-  const { page, blockedResources, awaitDocumentStatus } = await createInstrumentedPage(
+  const { page, blockedResources, awaitDocumentStatus, documentUrl } = await createInstrumentedPage(
     browser,
     ignoreDomainsList,
   );
@@ -365,7 +419,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
   } catch (err) {
     const status = await awaitDocumentStatus(DOCUMENT_STATUS_WAIT_MS);
     await closeBounded(page, PAGE_CLOSE_WAIT_MS);
-    if (status === NO_CONTENT) return { documentless: status };
+    if (status === NO_CONTENT) return { documentless: status, finalUrl: documentUrl() };
     throw err;
   }
 }
@@ -393,7 +447,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
   for (const url of urls) {
     const opts = { waitUntil: 'domcontentloaded', timeout: timeoutMs };
 
-    let response, page, blockedResources, documentless;
+    let response, page, blockedResources, documentless, finalUrl;
     let parsed;
     try {
       parsed = new URL(url);
@@ -404,11 +458,16 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
     }
 
     try {
-      ({ response, page, blockedResources, documentless } = await gotoUrl(
+      ({ response, page, blockedResources, documentless, finalUrl } = await gotoUrl(
         browser, url, opts, ignoreDomains,
       ));
       const scheme = parsed.protocol.replace(':', '').toUpperCase();
       if (documentless) {
+        if (leftConfinement(parsed.hostname, finalUrl)) {
+          console.error(`${parsed.host}: ❌ left ${confineTo}: ended at ${finalUrl}`);
+          errorCount++;
+          continue;
+        }
         console.log(`${parsed.host}: ✅ reachable via ${scheme} (${documentless}), no document to check`);
         continue;
       }
@@ -427,6 +486,11 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
     const redirectChain = response.request().redirectChain();
     if (redirectChain.length > 0) {
       console.log(`${parsed.host}: ↪️ followed ${redirectChain.length} redirect(s) to ${page.url()}`);
+    }
+
+    const leftNetwork = leftConfinement(parsed.hostname, page.url());
+    if (leftNetwork) {
+      console.error(`${parsed.host}: ❌ left ${confineTo}: ended at ${page.url()}`);
     }
 
     // Report results
@@ -457,6 +521,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
       errorCount++;
     } else {
       console.log(`${parsed.host}: ✅ No CSP or network blocks detected.`);
+      if (leftNetwork) errorCount++;
     }
 
     await page.close();
