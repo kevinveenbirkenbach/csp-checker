@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.1.0] - 2026-10-14
+
+* Proxy: --proxy-bypass reaches listed hosts directly, --proxy serves the rest
+* Confinement: --confine-to fails a target whose redirects leave the suffix
+* --confine-allow names hosts such a target may end on, e.g. the SSO issuer
+* A leaving target counts as one error; JavaScript redirects are not judged
+* A value flag without its value now exits 1
+* Without the new flags the checker behaves as in 3.0.5
+* Tests: bypass with negative control, confinement cases and input validation
+
 ## [3.0.5] - 2026-10-12
 
 * Scheme: an http:// URL is now probed as http://, no longer upgraded to https first
