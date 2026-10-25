@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.1.3] - 2026-10-25
+
+Fixed:
+
+* Checker: a redirect into a 204 no longer fails at random as unreachable
+* The status of a redirect hop is not taken for the document's final status
+
+Upgrade notes:
+
+* 3.1.1 failed its release tests and was never published
+
 ## [3.1.2] - 2026-10-25
 
 Fixed:

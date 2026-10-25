@@ -24,6 +24,7 @@ const puppeteer = require('puppeteer');
 const { domainToASCII } = require('url');
 
 const NO_CONTENT = 204;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const DOCUMENT_STATUS_WAIT_MS = 2000;
 const PAGE_CLOSE_WAIT_MS = 500;
 const PAGE_RELEASE_WAIT_MS = 30000;
@@ -320,6 +321,7 @@ async function createInstrumentedPage(browser, ignoreDomainsList) {
   });
   client.on('Network.responseReceivedExtraInfo', event => {
     if (event.requestId !== documentRequestId) return;
+    if (REDIRECT_STATUSES.has(event.statusCode)) return;
     documentStatus = event.statusCode;
     documentStatusWaiters.splice(0).forEach(resolve => resolve(documentStatus));
   });
