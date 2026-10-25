@@ -1,5 +1,25 @@
 # Changelog
 
+## [3.2.0] - 2026-10-25
+
+Added:
+
+* CLI: *--concurrency* checks that many URLs in parallel in one browser
+
+Changed:
+
+* Checker: every URL runs in its own browser context; nothing carries over
+* Checker: a 304 is no longer healthy, it only answered a cached revisit
+
+Fixed:
+
+* A redirect into a page an earlier URL loaded no longer times out
+
+Upgrade notes:
+
+* Cookies and cache no longer carry over between the URLs of one run
+* A server answering 304 without a conditional request now fails the check
+
 ## [3.1.3] - 2026-10-25
 
 Fixed:
