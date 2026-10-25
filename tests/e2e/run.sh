@@ -382,21 +382,30 @@ fi
 echo "${OUT_404_ACCEPTED}" | grep -q "web-404-by-design: ✅ No CSP or network blocks detected\." \
   || { echo "Expected the page's CSP to still be checked, not skipped"; exit 1; }
 
-log "Test: a revisited page that revalidates to 304 stays healthy without --accept-status"
-set +e
-OUT_304="$(docker run --rm --network "${NETWORK}" "${IMAGE}" \
-  "http://web-304-revalidated/" "http://web-304-revalidated/" 2>&1)"
-RC_304=$?
-set -e
-echo "${OUT_304}"
-if [[ "${RC_304}" -ne 0 ]]; then
-  echo "Expected a 304 revalidation to count as reachable, got ${RC_304}"
-  exit 1
-fi
-echo "${OUT_304}" | grep -q "web-304-revalidated: ✅ reachable via HTTP (304)" \
-  || { echo "Expected the second visit to revalidate to 304; without that line this test proves nothing about 304 handling"; exit 1; }
-echo "${OUT_304}" | grep -q "web-304-revalidated: ✅ No CSP or network blocks detected\." \
-  || { echo "Expected the revalidated page's CSP to still be checked, not skipped"; exit 1; }
+log "Test: a URL's verdict does not depend on the URLs checked before or beside it"
+REVISITED_URLS=(
+  "http://web-304-revalidated/" "http://web-redirect-to-bad/" "http://web-slow/?delay=2" "http://web-slow/?delay=2"
+  "http://web-304-revalidated/" "http://web-redirect-to-bad/"
+)
+for concurrency in 1 4; do
+  set +e
+  OUT_REVISIT="$(timeout 300s docker run --rm --network "${NETWORK}" "${IMAGE}" --concurrency "${concurrency}" -- "${REVISITED_URLS[@]}" 2>&1)"
+  RC_REVISIT=$?
+  set -e
+  echo "${OUT_REVISIT}"
+  if [[ "${RC_REVISIT}" -ne 2 ]]; then
+    echo "Expected only the two web-redirect-to-bad visits to fail, on their CSP, got ${RC_REVISIT} with --concurrency ${concurrency}"
+    exit 1
+  fi
+  for host in web-304-revalidated web-redirect-to-bad; do
+    UNPAIRED="$(echo "${OUT_REVISIT}" | grep "^${host}: " | sort | uniq -c | awk '$1 != 2')"
+    if [[ -n "${UNPAIRED}" ]]; then
+      echo "Expected both visits of ${host} to report the same lines with --concurrency ${concurrency}; a 304 or a timeout on the second visit means state leaked from the first:"
+      echo "${UNPAIRED}"
+      exit 1
+    fi
+  done
+done
 
 log "Test: a 200 that aborts is not a 204 and must still fail"
 set +e
@@ -446,6 +455,69 @@ SEEN_204="$(echo "${OUT_MANY}" | grep -c "web-204-bodyless: ✅ reachable via HT
 if [[ "${SEEN_204}" -ne 2 ]]; then
   echo "The 204 verdict must hold on every visit, got ${SEEN_204} of 2;"
   echo "a lower count means per-page state leaked between URLs of one run"
+  exit 1
+fi
+
+log "Test: --concurrency 4 reports the sequential verdicts in input order, one unbroken block per URL"
+CONCURRENT_URLS=(
+  "http://web-slow/?delay=3" "http://away.test/" "http://away.test/bodyless" "http://away.test/bad"
+  "http://web-redirect-away/" "http://web-ok/" "http://web-204-bodyless/" "http://web-200-download/"
+  "http://web-bad/" "http://web-redirect-to-bad/" "http://web-204-bodyless/"
+)
+set +e
+OUT_SEQUENTIAL="$(timeout 300s docker run --rm --network "${NETWORK}" --add-host "away.test:${AWAY_IP}" "${IMAGE}" --confine-to .test -- "${CONCURRENT_URLS[@]}" 2>&1)"
+RC_SEQUENTIAL=$?
+OUT_CONCURRENT="$(timeout 300s docker run --rm --network "${NETWORK}" --add-host "away.test:${AWAY_IP}" "${IMAGE}" --concurrency 4 --confine-to .test -- "${CONCURRENT_URLS[@]}" 2>&1)"
+RC_CONCURRENT=$?
+set -e
+echo "${OUT_SEQUENTIAL}"
+echo "${OUT_CONCURRENT}"
+if echo "${OUT_SEQUENTIAL}${OUT_CONCURRENT}" | grep -q "Navigation timeout"; then
+  echo "A redirect into a page an earlier URL loaded, next to a download, must not hang page.goto"
+  exit 1
+fi
+if [[ "${RC_SEQUENTIAL}" -ne 6 ]] || [[ "${RC_CONCURRENT}" -ne "${RC_SEQUENTIAL}" ]]; then
+  echo "Expected six failing URLs in both runs, got ${RC_SEQUENTIAL} sequential and ${RC_CONCURRENT} with --concurrency 4"
+  exit 1
+fi
+verdicts() { grep -E '^[^ ]+: (✅|❌|↪)'; }
+if ! diff <(echo "${OUT_SEQUENTIAL}" | verdicts | sort) <(echo "${OUT_CONCURRENT}" | verdicts | sort); then
+  echo "Expected --concurrency 4 to report exactly the sequential run's verdict lines"
+  exit 1
+fi
+EXPECTED_HOSTS="$(printf '%s\n' "${CONCURRENT_URLS[@]}" | cut -d/ -f3 | uniq)"
+SEEN_HOSTS="$(echo "${OUT_CONCURRENT}" | verdicts | cut -d: -f1 | uniq)"
+if [[ "${SEEN_HOSTS}" != "${EXPECTED_HOSTS}" ]]; then
+  echo "Expected the blocks in input order, the slow first URL included, none split by another host"
+  exit 1
+fi
+if ! echo "${OUT_CONCURRENT}" | awk '/^ / { if (!open) bad = 1; next } { open = ($0 ~ /Blocked resources detected:$/) } END { exit bad }'; then
+  echo "Expected every detail line directly under its own 'Blocked resources detected' header"
+  exit 1
+fi
+
+log "Test: an invalid --concurrency is rejected"
+for invalid in abc 0 -2 1.5; do
+  set +e
+  OUT_INVALID="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" --concurrency "${invalid}" "http://web-ok/" 2>&1)"
+  RC_INVALID=$?
+  set -e
+  echo "${OUT_INVALID}"
+  if [[ "${RC_INVALID}" -ne 1 ]]; then
+    echo "Expected exit code 1 for --concurrency ${invalid}, got ${RC_INVALID}"
+    exit 1
+  fi
+  echo "${OUT_INVALID}" | grep -q -- "--concurrency expects a positive integer number of URLs to check in parallel." \
+    || { echo "Expected the --concurrency validation message for ${invalid}"; exit 1; }
+done
+
+set +e
+OUT_CONCURRENCY_NOVALUE="$(timeout 60s docker run --rm --network "${NETWORK}" "${IMAGE}" "http://web-ok/" --concurrency 2>&1)"
+RC_CONCURRENCY_NOVALUE=$?
+set -e
+echo "${OUT_CONCURRENCY_NOVALUE}"
+if [[ "${RC_CONCURRENCY_NOVALUE}" -ne 1 ]] || ! echo "${OUT_CONCURRENCY_NOVALUE}" | grep -q -- "--concurrency expects a value"; then
+  echo "Expected --concurrency without a value to be rejected"
   exit 1
 fi
 

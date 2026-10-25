@@ -5,7 +5,7 @@
 // - NOT backward compatible: accepts ONLY full URLs (http:// or https://)
 // - Does NOT probe ports 80/443
 // - Navigates exactly to the given URL
-// - Treats 2xx and 304 as healthy; every other status must be declared via --accept-status
+// - Treats 2xx as healthy; every other status must be declared via --accept-status
 // - Follows redirect chains and judges the document they land on
 // - Collects CSP violations via CDP + DOM events
 // - Collects "blocked" network failures (e.g., ORB) unless ignored via --ignore-network-blocks-from
@@ -31,13 +31,13 @@ const PAGE_RELEASE_WAIT_MS = 30000;
 const BROWSER_CLOSE_WAIT_MS = 5000;
 
 /**
- * Close a page or the browser without waiting forever.
+ * Close a browser context or the browser without waiting forever.
  *
- * `page.close()` does not return while the page is committing a navigation,
+ * Closing does not return while a page is committing a navigation,
  * which both the abort path and a page that navigates again after
  * domcontentloaded reach.
  *
- * @param {import('puppeteer').Page | import('puppeteer').Browser} closable page or browser to close
+ * @param {import('puppeteer').BrowserContext | import('puppeteer').Browser} closable context or browser to close
  * @param {number} timeoutMs milliseconds to wait before giving up on the close
  * @returns {Promise<void>} resolves on close or on the deadline, never rejects
  */
@@ -56,6 +56,7 @@ function closeBounded(closable, timeoutMs) {
  *  - --confine-to <suffix>   (a target whose host ends with <suffix> must end on such a host)
  *  - --confine-allow <host ...>  (final hosts --confine-to accepts outside <suffix>)
  *  - --timeout <ms>    (navigation budget per URL until domcontentloaded, default 20000)
+ *  - --concurrency <n> (URLs checked in parallel, one page each, default 1)
  *  - --ignore-network-blocks-from <domain ...>
  *  - --accept-status <host>=<code>[,<code>] ...
  *  - remaining positional args are target URLs (MUST be full URLs)
@@ -80,6 +81,7 @@ function parseArgs(argv) {
     confineTo: '',
     confineAllow: new Set(),
     timeoutMs: 20000,
+    concurrency: 1,
     ignoreDomains: [],
     acceptStatus: new Map(),
     urls: [],
@@ -149,6 +151,12 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (token === '--concurrency') {
+      i += 1;
+      result.concurrency = Number(value(token));
+      continue;
+    }
+
     if (token === '--ignore-network-blocks-from') {
       i += 1;
       while (i < args.length && !String(args[i]).startsWith('--')) {
@@ -184,11 +192,17 @@ function parseArgs(argv) {
 }
 
 const {
-  shortMode, proxy, proxyBypass, confineTo, confineAllow, timeoutMs, ignoreDomains, acceptStatus, urls,
+  shortMode, proxy, proxyBypass, confineTo, confineAllow, timeoutMs, concurrency, ignoreDomains, acceptStatus,
+  urls,
 } = parseArgs(process.argv);
 
 if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
   console.error('--timeout expects a positive integer number of milliseconds.');
+  process.exit(1);
+}
+
+if (!Number.isInteger(concurrency) || concurrency <= 0) {
+  console.error('--concurrency expects a positive integer number of URLs to check in parallel.');
   process.exit(1);
 }
 
@@ -262,8 +276,8 @@ function filterShort(resources) {
  *  - blockedResources (array)
  *  - client (CDP session)
  */
-async function createInstrumentedPage(browser, ignoreDomainsList) {
-  const page = await browser.newPage();
+async function createInstrumentedPage(context, ignoreDomainsList) {
+  const page = await context.newPage();
 
   // Auto-dismiss/accept dialogs so they can't block DOMContentLoaded.
   // For SSO "notice" popups etc, accepting is fine.
@@ -405,9 +419,9 @@ function leftConfinement(targetHost, finalUrl) {
  * Returns:
  *  - { response, page, blockedResources }
  */
-async function gotoUrl(browser, url, opts, ignoreDomainsList) {
+async function gotoUrl(context, url, opts, ignoreDomainsList) {
   const { page, blockedResources, awaitDocumentStatus, documentUrl } = await createInstrumentedPage(
-    browser,
+    context,
     ignoreDomainsList,
   );
 
@@ -416,22 +430,107 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
     if (!res) throw new Error('No response');
 
     const status = res.status();
-    if (status >= 300 && status !== 304 && !acceptsStatus(url, status)) {
+    if (status >= 300 && !acceptsStatus(url, status)) {
       throw new Error(`Status ${status}`);
     }
 
     return { response: res, page, blockedResources };
   } catch (err) {
     const status = await awaitDocumentStatus(DOCUMENT_STATUS_WAIT_MS);
-    await closeBounded(page, PAGE_CLOSE_WAIT_MS);
     if (status === NO_CONTENT) return { documentless: status, finalUrl: documentUrl() };
     throw err;
   }
 }
 
-(async () => {
-  let errorCount = 0;
+/**
+ * Check one URL on a page in its own browser context and report each line through report.say.
+ *
+ * @param {import('puppeteer').Browser} browser browser that creates the context
+ * @param {string} url target URL
+ * @param {{say: function(string, string): void, context: ?import('puppeteer').BrowserContext, releaseMs: number}} report
+ *   say takes the console method and the text of one line; context receives the
+ *   context the caller closes after printing, bounded by releaseMs
+ * @returns {Promise<boolean>} whether the URL counts as one error
+ */
+async function checkUrl(browser, url, report) {
+  const { say } = report;
+  const opts = { waitUntil: 'domcontentloaded', timeout: timeoutMs };
 
+  let response, page, blockedResources, documentless, finalUrl;
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    say('error', `${url}: ❌ Invalid URL`);
+    return true;
+  }
+
+  try {
+    report.context = await browser.createBrowserContext();
+    ({ response, page, blockedResources, documentless, finalUrl } = await gotoUrl(
+      report.context, url, opts, ignoreDomains,
+    ));
+    const scheme = parsed.protocol.replace(':', '').toUpperCase();
+    if (documentless) {
+      if (leftConfinement(parsed.hostname, finalUrl)) {
+        say('error', `${parsed.host}: ❌ left ${confineTo}: ended at ${finalUrl}`);
+        return true;
+      }
+      say('log', `${parsed.host}: ✅ reachable via ${scheme} (${documentless}), no document to check`);
+      return false;
+    }
+    say('log', `${parsed.host}: ✅ reachable via ${scheme} (${response.status()})`);
+  } catch (err) {
+    say('error', `${parsed.host}: ❌ Unable to reach ${url} (${err.message})`);
+    return true;
+  }
+  report.releaseMs = PAGE_RELEASE_WAIT_MS;
+
+  const inPageViolations = await safeEvaluate(page, () => window.__cspViolations || []);
+  inPageViolations.forEach(v => {
+    blockedResources.push(Object.assign({ type: 'csp-dom' }, v));
+  });
+
+  const redirectChain = response.request().redirectChain();
+  if (redirectChain.length > 0) {
+    say('log', `${parsed.host}: ↪️ followed ${redirectChain.length} redirect(s) to ${page.url()}`);
+  }
+
+  const leftNetwork = leftConfinement(parsed.hostname, page.url());
+  if (leftNetwork) {
+    say('error', `${parsed.host}: ❌ left ${confineTo}: ended at ${page.url()}`);
+  }
+
+  if (blockedResources.length === 0) {
+    say('log', `${parsed.host}: ✅ No CSP or network blocks detected.`);
+    return leftNetwork;
+  }
+
+  say('warn', `${parsed.host}: ❌ Blocked resources detected:`);
+  const toPrint = shortMode ? filterShort(blockedResources) : blockedResources;
+  toPrint.forEach(res => {
+    switch (res.type) {
+      case 'network':
+        say('log', `  [NETWORK] ${res.url} (${res.reason})`);
+        break;
+      case 'csp-cdp':
+        say('log', `  [CSP CDP] Document:   ${res.documentURL}`);
+        say('log', `             Blocked:    ${res.blockedURL}`);
+        say('log', `             Violated:   ${res.violatedDirective}`);
+        say('log', `             Effective:  ${res.effectiveDirective}`);
+        break;
+      case 'csp-dom':
+        say('log', `  [CSP DOM] Blocked URI: ${res.blockedURI}`);
+        say('log', `            Directive:   ${res.violatedDirective}`);
+        say('log', `            Effective:   ${res.effectiveDirective}`);
+        say('log', `            Source:      ${res.sourceFile}:${res.lineNumber}:${res.columnNumber}`);
+        break;
+    }
+  });
+  return true;
+}
+
+(async () => {
   const browser = await puppeteer.launch({
     headless: 'new',
     // Chromium 113+ Chrome Root Store ignores host NSS DB; bypass cert validation (both names = Puppeteer v20/v21 compat).
@@ -449,89 +548,46 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
     ],
   });
 
-  for (const url of urls) {
-    const opts = { waitUntil: 'domcontentloaded', timeout: timeoutMs };
+  const reports = [];
+  let nextIndex = 0;
+  let printedCount = 0;
+  let halted = false;
 
-    let response, page, blockedResources, documentless, finalUrl;
-    let parsed;
-    try {
-      parsed = new URL(url);
-    } catch {
-      console.error(`${url}: ❌ Invalid URL`);
-      errorCount++;
-      continue;
+  const printReady = () => {
+    while (reports[printedCount]) {
+      const { text, fatal } = reports[printedCount];
+      if (text) process.stdout.write(text);
+      if (fatal) throw fatal;
+      printedCount += 1;
     }
+  };
 
-    try {
-      ({ response, page, blockedResources, documentless, finalUrl } = await gotoUrl(
-        browser, url, opts, ignoreDomains,
-      ));
-      const scheme = parsed.protocol.replace(':', '').toUpperCase();
-      if (documentless) {
-        if (leftConfinement(parsed.hostname, finalUrl)) {
-          console.error(`${parsed.host}: ❌ left ${confineTo}: ended at ${finalUrl}`);
-          errorCount++;
-          continue;
-        }
-        console.log(`${parsed.host}: ✅ reachable via ${scheme} (${documentless}), no document to check`);
-        continue;
+  const worker = async () => {
+    while (!halted && nextIndex < urls.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const lines = [];
+      const say = concurrency === 1
+        ? (method, text) => console[method](text)
+        : (method, text) => lines.push(`${text}\n`);
+      const report = { say, context: null, releaseMs: PAGE_CLOSE_WAIT_MS };
+      let failed = false;
+      let fatal = null;
+      try {
+        failed = await checkUrl(browser, urls[index], report);
+      } catch (err) {
+        fatal = err;
+        halted = true;
       }
-      console.log(`${parsed.host}: ✅ reachable via ${scheme} (${response.status()})`);
-    } catch (err) {
-      console.error(`${parsed.host}: ❌ Unable to reach ${url} (${err.message})`);
-      errorCount++;
-      continue;
+      reports[index] = { text: lines.join(''), failed, fatal };
+      printReady();
+      if (report.context) await closeBounded(report.context, report.releaseMs);
     }
+  };
 
-    const inPageViolations = await safeEvaluate(page, () => window.__cspViolations || []);
-    inPageViolations.forEach(v => {
-      blockedResources.push(Object.assign({ type: 'csp-dom' }, v));
-    });
+  await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
 
-    const redirectChain = response.request().redirectChain();
-    if (redirectChain.length > 0) {
-      console.log(`${parsed.host}: ↪️ followed ${redirectChain.length} redirect(s) to ${page.url()}`);
-    }
-
-    const leftNetwork = leftConfinement(parsed.hostname, page.url());
-    if (leftNetwork) {
-      console.error(`${parsed.host}: ❌ left ${confineTo}: ended at ${page.url()}`);
-    }
-
-    // Report results
-    if (blockedResources.length > 0) {
-      console.warn(`${parsed.host}: ❌ Blocked resources detected:`);
-      const toPrint = shortMode ? filterShort(blockedResources) : blockedResources;
-
-      toPrint.forEach(res => {
-        switch (res.type) {
-          case 'network':
-            console.log(`  [NETWORK] ${res.url} (${res.reason})`);
-            break;
-          case 'csp-cdp':
-            console.log(`  [CSP CDP] Document:   ${res.documentURL}`);
-            console.log(`             Blocked:    ${res.blockedURL}`);
-            console.log(`             Violated:   ${res.violatedDirective}`);
-            console.log(`             Effective:  ${res.effectiveDirective}`);
-            break;
-          case 'csp-dom':
-            console.log(`  [CSP DOM] Blocked URI: ${res.blockedURI}`);
-            console.log(`            Directive:   ${res.violatedDirective}`);
-            console.log(`            Effective:   ${res.effectiveDirective}`);
-            console.log(`            Source:      ${res.sourceFile}:${res.lineNumber}:${res.columnNumber}`);
-            break;
-        }
-      });
-
-      errorCount++;
-    } else {
-      console.log(`${parsed.host}: ✅ No CSP or network blocks detected.`);
-      if (leftNetwork) errorCount++;
-    }
-
-    await closeBounded(page, PAGE_RELEASE_WAIT_MS);
-  }
-
+  const errorCount = reports.filter(report => report.failed).length;
   await closeBounded(browser, BROWSER_CLOSE_WAIT_MS);
   process.exit(errorCount);
 })().catch(err => {

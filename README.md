@@ -66,6 +66,8 @@ docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
   https://example.com/login
 ```
 
+Every URL is checked in its own fresh browser context: no cache, cookie, storage or service worker carries over from another URL, so a URL gets the same verdict wherever it stands in the list.
+
 ---
 
 ### Short mode
@@ -148,6 +150,23 @@ docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
   --timeout 100000 \
   -- http://example.onion/
 ```
+
+---
+
+### Parallel checks
+
+Check up to `<n>` URLs at the same time, each in its own browser context of the same browser (default `1`, one URL after another):
+
+```bash
+docker run --rm ghcr.io/kevinveenbirkenbach/csp-checker \
+  --concurrency 4 \
+  -- https://example.com/ https://example.com/login https://example.org/
+```
+
+The report keeps the input order: a URL's lines are printed together as soon as that URL and every URL before it are done. The exit code still counts the failing URLs. With a value above `1`:
+
+- each URL's lines go to stdout as one block, so they stay together in a combined log; without the flag, findings go to stderr as before
+- the pages share the container's CPU, so raise `--timeout` when a small CPU quota slows the navigations down
 
 ---
 
