@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.1] - 2026-10-25
+
+Fixed:
+
+* Checker: a page that navigates again after loading no longer hangs the run
+* Closing a page now gives up after 0.5 s and the browser after 5 s
+
 ## [3.1.0] - 2026-10-14
 
 * Proxy: --proxy-bypass reaches listed hosts directly, --proxy serves the rest
