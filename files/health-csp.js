@@ -26,20 +26,22 @@ const { domainToASCII } = require('url');
 const NO_CONTENT = 204;
 const DOCUMENT_STATUS_WAIT_MS = 2000;
 const PAGE_CLOSE_WAIT_MS = 500;
+const BROWSER_CLOSE_WAIT_MS = 5000;
 
 /**
- * Close a page without waiting forever.
+ * Close a page or the browser without waiting forever.
  *
  * `page.close()` does not return while the page is committing a navigation,
- * which the abort path reaches once the document status has been awaited.
+ * which both the abort path and a page that navigates again after
+ * domcontentloaded reach.
  *
- * @param {import('puppeteer').Page} page page to close
+ * @param {import('puppeteer').Page | import('puppeteer').Browser} closable page or browser to close
  * @param {number} timeoutMs milliseconds to wait before giving up on the close
  * @returns {Promise<void>} resolves on close or on the deadline, never rejects
  */
-function closeBounded(page, timeoutMs) {
+function closeBounded(closable, timeoutMs) {
   return Promise.race([
-    page.close().catch(() => {}),
+    closable.close().catch(() => {}),
     new Promise(resolve => setTimeout(resolve, timeoutMs).unref()),
   ]);
 }
@@ -524,10 +526,10 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
       if (leftNetwork) errorCount++;
     }
 
-    await page.close();
+    await closeBounded(page, PAGE_CLOSE_WAIT_MS);
   }
 
-  await browser.close();
+  await closeBounded(browser, BROWSER_CLOSE_WAIT_MS);
   process.exit(errorCount);
 })().catch(err => {
   // Last-resort guard
