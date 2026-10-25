@@ -26,6 +26,7 @@ const { domainToASCII } = require('url');
 const NO_CONTENT = 204;
 const DOCUMENT_STATUS_WAIT_MS = 2000;
 const PAGE_CLOSE_WAIT_MS = 500;
+const PAGE_RELEASE_WAIT_MS = 30000;
 const BROWSER_CLOSE_WAIT_MS = 5000;
 
 /**
@@ -526,7 +527,7 @@ async function gotoUrl(browser, url, opts, ignoreDomainsList) {
       if (leftNetwork) errorCount++;
     }
 
-    await closeBounded(page, PAGE_CLOSE_WAIT_MS);
+    await closeBounded(page, PAGE_RELEASE_WAIT_MS);
   }
 
   await closeBounded(browser, BROWSER_CLOSE_WAIT_MS);

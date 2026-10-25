@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.1.2] - 2026-10-25
+
+Fixed:
+
+* Checker: a page that navigates again after loading no longer hangs the run
+* A finished page gets up to 30 s to close before the next URL loads
+
+Upgrade notes:
+
+* 3.1.1 failed its release tests and was never published; use 3.1.2
+
 ## [3.1.1] - 2026-10-25
 
 Fixed:
